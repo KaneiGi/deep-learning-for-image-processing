@@ -6,11 +6,12 @@ from PIL import Image
 from lxml import etree
 
 
-class VOC2012DataSet(Dataset):
-    """读取解析PASCAL VOC2012数据集"""
+class VOCDataSet(Dataset):
+    """读取解析PASCAL VOC2007/2012数据集"""
 
-    def __init__(self, voc_root, transforms, year='VOC2012', train_set='train.txt'):
-        self.root = os.path.join(voc_root, "VOCdevkit", year)
+    def __init__(self, voc_root, year="2012", transforms=None, train_set='train.txt'):
+        assert year in ["2007", "2012"], "year must be in ['2007', '2012']"
+        self.root = os.path.join(voc_root, "VOCdevkit", f"VOC{year}")
         self.img_root = os.path.join(self.root, "JPEGImages")
         self.annotations_root = os.path.join(self.root, "Annotations")
 
@@ -18,13 +19,14 @@ class VOC2012DataSet(Dataset):
 
         with open(txt_list) as read:
             self.xml_list = [os.path.join(self.annotations_root, line.strip() + ".xml")
-                             for line in read.readlines()]
+                             for line in read.readlines() if len(line.strip()) > 0]
 
         # read class_indict
         json_file = "./pascal_voc_classes.json"
         assert os.path.exists(json_file), "{} file not exist.".format(json_file)
         json_file = open(json_file, 'r')
         self.class_dict = json.load(json_file)
+        json_file.close()
 
         self.transforms = transforms
 
@@ -220,7 +222,7 @@ class VOC2012DataSet(Dataset):
 # }
 #
 # # load train data set
-# train_data_set = VOC2012DataSet(os.getcwd(), data_transform["train"], "train.txt")
+# train_data_set = VOCDataSet(os.getcwd(), "2012", data_transform["train"], "train.txt")
 # print(len(train_data_set))
 # for index in random.sample(range(0, len(train_data_set)), k=5):
 #     img, target = train_data_set[index]

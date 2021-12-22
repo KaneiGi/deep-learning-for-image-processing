@@ -5,20 +5,20 @@ import datetime
 import torch
 
 import transforms
-from my_dataset import VOC2012DataSet
+from my_dataset import VOCDataSet
 from src import SSD300, Backbone
 import train_utils.train_eval_utils as utils
 from train_utils import GroupedBatchSampler, create_aspect_ratio_groups, init_distributed_mode, save_on_master, mkdir
 
 
-def create_model(num_classes, device=torch.device('cpu')):
+def create_model(num_classes):
     # https://download.pytorch.org/models/resnet50-19c8e357.pth
     # pre_train_path = "./src/resnet50.pth"
     backbone = Backbone(pretrain_path=None)
     model = SSD300(backbone=backbone, num_classes=num_classes)
 
     pre_ssd_path = "./src/nvidia_ssdpyt_fp32.pt"
-    pre_model_dict = torch.load(pre_ssd_path, map_location=device)
+    pre_model_dict = torch.load(pre_ssd_path, map_location='cpu')
     pre_weights_dict = pre_model_dict["model"]
 
     # 删除类别预测器权重，注意，回归预测器的权重可以重用，因为不涉及num_classes
@@ -67,10 +67,12 @@ def main(args):
         raise FileNotFoundError("VOCdevkit dose not in path:'{}'.".format(VOC_root))
 
     # load train data set
-    train_data_set = VOC2012DataSet(VOC_root, data_transform["train"], train_set='train.txt')
+    # VOCdevkit -> VOC2012 -> ImageSets -> Main -> train.txt
+    train_data_set = VOCDataSet(VOC_root, "2012", data_transform["train"], train_set='train.txt')
 
     # load validation data set
-    val_data_set = VOC2012DataSet(VOC_root, data_transform["val"], train_set='val.txt')
+    # VOCdevkit -> VOC2012 -> ImageSets -> Main -> val.txt
+    val_data_set = VOCDataSet(VOC_root, "2012", data_transform["val"], train_set='val.txt')
 
     print("Creating data loaders")
     if args.distributed:
@@ -98,7 +100,8 @@ def main(args):
         collate_fn=train_data_set.collate_fn)
 
     print("Creating model")
-    model = create_model(num_classes=args.num_classes+1, device=device)
+    model = create_model(num_classes=args.num_classes+1)
+    model.to(device)
 
     model_without_ddp = model
     if args.distributed:

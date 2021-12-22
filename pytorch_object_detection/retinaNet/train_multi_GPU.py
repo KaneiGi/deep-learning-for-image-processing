@@ -7,12 +7,12 @@ import torch
 import transforms
 from backbone import resnet50_fpn_backbone, LastLevelP6P7
 from network_files import RetinaNet
-from my_dataset import VOC2012DataSet
+from my_dataset import VOCDataSet
 from train_utils import train_eval_utils as utils
 from train_utils import GroupedBatchSampler, create_aspect_ratio_groups, init_distributed_mode, save_on_master, mkdir
 
 
-def create_model(num_classes, device):
+def create_model(num_classes):
     # 创建retinanet_res50_fpn模型
     # skip P2 because it generates too many anchors (according to their paper)
     # 注意，这里的backbone默认使用的是FrozenBatchNorm2d，即不会去更新bn参数
@@ -26,7 +26,7 @@ def create_model(num_classes, device):
 
     # 载入预训练权重
     # https://download.pytorch.org/models/retinanet_resnet50_fpn_coco-eeacb38b.pth
-    weights_dict = torch.load("./backbone/retinanet_resnet50_fpn.pth", map_location=device)
+    weights_dict = torch.load("./backbone/retinanet_resnet50_fpn.pth", map_location='cpu')
     # 删除分类器部分的权重，因为自己的数据集类别与预训练数据集类别(91)不一定致，如果载入会出现冲突
     del_keys = ["head.classification_head.cls_logits.weight", "head.classification_head.cls_logits.bias"]
     for k in del_keys:
@@ -61,41 +61,41 @@ def main(args):
 
     # load train data set
     # VOCdevkit -> VOC2012 -> ImageSets -> Main -> train.txt
-    train_data_set = VOC2012DataSet(VOC_root, data_transform["train"], "train.txt")
+    train_dataset = VOCDataSet(VOC_root, "2012", data_transform["train"], "train.txt")
 
     # load validation data set
     # VOCdevkit -> VOC2012 -> ImageSets -> Main -> val.txt
-    val_data_set = VOC2012DataSet(VOC_root, data_transform["val"], "val.txt")
+    val_dataset = VOCDataSet(VOC_root, "2012", data_transform["val"], "val.txt")
 
     print("Creating data loaders")
     if args.distributed:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(train_data_set)
-        test_sampler = torch.utils.data.distributed.DistributedSampler(val_data_set)
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+        test_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
     else:
-        train_sampler = torch.utils.data.RandomSampler(train_data_set)
-        test_sampler = torch.utils.data.SequentialSampler(val_data_set)
+        train_sampler = torch.utils.data.RandomSampler(train_dataset)
+        test_sampler = torch.utils.data.SequentialSampler(val_dataset)
 
     if args.aspect_ratio_group_factor >= 0:
         # 统计所有图像比例在bins区间中的位置索引
-        group_ids = create_aspect_ratio_groups(train_data_set, k=args.aspect_ratio_group_factor)
+        group_ids = create_aspect_ratio_groups(train_dataset, k=args.aspect_ratio_group_factor)
         train_batch_sampler = GroupedBatchSampler(train_sampler, group_ids, args.batch_size)
     else:
         train_batch_sampler = torch.utils.data.BatchSampler(
             train_sampler, args.batch_size, drop_last=True)
 
     data_loader = torch.utils.data.DataLoader(
-        train_data_set, batch_sampler=train_batch_sampler, num_workers=args.workers,
-        collate_fn=train_data_set.collate_fn)
+        train_dataset, batch_sampler=train_batch_sampler, num_workers=args.workers,
+        collate_fn=train_dataset.collate_fn)
 
     data_loader_test = torch.utils.data.DataLoader(
-        val_data_set, batch_size=1,
+        val_dataset, batch_size=1,
         sampler=test_sampler, num_workers=args.workers,
-        collate_fn=train_data_set.collate_fn)
+        collate_fn=train_dataset.collate_fn)
 
     print("Creating model")
     # create model
     # 注意：不包含背景
-    model = create_model(num_classes=args.num_classes, device=device)
+    model = create_model(num_classes=args.num_classes)
     model.to(device)
 
     model_without_ddp = model
@@ -106,6 +106,8 @@ def main(args):
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.SGD(
         params, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+
+    scaler = torch.cuda.amp.GradScaler() if args.amp else None
 
     # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.lr_steps, gamma=args.lr_gamma)
@@ -120,6 +122,8 @@ def main(args):
         optimizer.load_state_dict(checkpoint['optimizer'])
         lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
         args.start_epoch = checkpoint['epoch'] + 1
+        if args.amp and "scaler" in checkpoint:
+            scaler.load_state_dict(checkpoint["scaler"])
 
     if args.test_only:
         utils.evaluate(model, data_loader_test, device=device)
@@ -134,8 +138,9 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
-        mean_loss, lr = utils.train_one_epoch(model, optimizer, data_loader, device,
-                                              epoch, args.print_freq, warmup=True)
+        mean_loss, lr = utils.train_one_epoch(model, optimizer, data_loader,
+                                              device, epoch, args.print_freq,
+                                              warmup=True, scaler=scaler)
         train_loss.append(mean_loss.item())
         learning_rate.append(lr)
 
@@ -157,13 +162,16 @@ def main(args):
 
         if args.output_dir:
             # 只在主节点上执行保存权重操作
-            save_on_master({
-                'model': model_without_ddp.state_dict(),
+            save_files = {
+                'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler.state_dict(),
                 'args': args,
-                'epoch': epoch},
-                os.path.join(args.output_dir, 'model_{}.pth'.format(epoch)))
+                'epoch': epoch}
+            if args.amp:
+                save_files["scaler"] = scaler.state_dict()
+            save_on_master(save_files,
+                           os.path.join(args.output_dir, f'model_{epoch}.pth'))
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -240,6 +248,8 @@ if __name__ == "__main__":
     parser.add_argument('--world-size', default=4, type=int,
                         help='number of distributed processes')
     parser.add_argument('--dist-url', default='env://', help='url used to set up distributed training')
+    # 是否使用混合精度训练(需要GPU支持混合精度)
+    parser.add_argument("--amp", default=False, help="Use torch.cuda.amp for mixed precision training")
 
     args = parser.parse_args()
 

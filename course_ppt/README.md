@@ -10,13 +10,17 @@
 - **MobileNet_v3**  链接：https://pan.baidu.com/s/13mzSpyxuA4T4ki7kEN1Xqw 密码：fp5g 
 - **ShuffleNet_v1_v2** 链接：https://pan.baidu.com/s/1-DDwePMPCDvjw08YU8nAAA 密码：ad6n
 - **EfficientNet_v1** 链接：https://pan.baidu.com/s/1Sep9W0vLzfjhcHAXr6Bv0Q  密码：eufl 
+- **EfficientNet_v2** 链接：https://pan.baidu.com/s/1tesrgY4CHLmq6P7s7TcHCw  密码：y2kz
+- **Transformer** 链接：https://pan.baidu.com/s/1DE6RDySr7NS0HQ35gBqP_g 密码：y9e7
+- **Vision Transformer** 链接：https://pan.baidu.com/s/1wzpHG8EK5gxg6UCMscYqMw 密码：cm1m
+- **Swin Transformer** 链接：https://pan.baidu.com/s/1O6XEEZUb6B6AGYON7-EOgA 密码：qkrn
 - **ConfusionMatrix** 链接: https://pan.baidu.com/s/1EtKzHkZyv2XssYtqmGYCLg  密码: uoo5
 
 
 ## 目标检测网络相关
 - **R-CNN** 链接: https://pan.baidu.com/s/1l_ZxkfJdyp3KoMLqwWbx5A  密码: nm1l
 - **Fast R-CNN** 链接: https://pan.baidu.com/s/1Pe_Tg43OVo-yZWj7t-_L6Q  密码: fe73
-- **Faster R-CNN** 链接: https://pan.baidu.com/s/16AA-d7f15etLkgKajuzpSw  密码: 73h6
+- **Faster R-CNN** 链接：https://pan.baidu.com/s/1Dd0d_LY8l7Y1YkHQhp-WfA  密码：vzp4
 - **FPN** 链接：https://pan.baidu.com/s/1O9H0iqQMg9f_FZezUEKZ9g 密码：qbl8 
 - **SSD** 链接: https://pan.baidu.com/s/15zF3GhIdg-E_tZX2Y2X-rw  密码: u7k1
 - **RetinaNet**  链接：https://pan.baidu.com/s/1beW612VCSnSu-v8iu_2-fA 密码：vqbu 
@@ -28,3 +32,11 @@
 - **coco数据集简介** 链接：https://pan.baidu.com/s/1HfCvjt-8o9j5a916IYNVjw  密码：6rec 
 
 
+## 图像分割网络相关
+- **语义分割前言** 链接：https://pan.baidu.com/s/1cwxe2wbaA_2DqNYADq3myA 密码：zzij
+- **转置卷积** 链接：https://pan.baidu.com/s/1A8688168fuWHyxJQtzupHw 密码：pgnf
+- **FCN** 链接：https://pan.baidu.com/s/1XLUneTLrdUyDAiV6kqi9rw 密码：126a
+- **膨胀卷积** 链接：https://pan.baidu.com/s/1QlQyniuMhBeXyEK420MIdQ 密码：ry6p
+- **DeepLab V1** 链接：https://pan.baidu.com/s/1NFxb7ADQOMVYLxmIKqTONQ  密码：500s
+- **DeepLab V2** 链接：https://pan.baidu.com/s/1woe3lJYBVkOdnn6XXlKf8g 密码：76ec
+- **DeepLab V3** 链接：https://pan.baidu.com/s/1WVBgc2Ld13D0_dkHGwhTpA 密码：m54m

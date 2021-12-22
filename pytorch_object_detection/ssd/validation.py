@@ -12,7 +12,7 @@ import numpy as np
 
 import transforms
 from src import Backbone, SSD300
-from my_dataset import VOC2012DataSet
+from my_dataset import VOCDataSet
 from train_utils import get_coco_api_from_dataset, CocoEvaluator
 
 
@@ -103,6 +103,7 @@ def main(parser_data):
     assert os.path.exists(label_json_path), "json file {} dose not exist.".format(label_json_path)
     json_file = open(label_json_path, 'r')
     class_dict = json.load(json_file)
+    json_file.close()
     category_index = {v: k for k, v in class_dict.items()}
 
     VOC_root = parser_data.data_path
@@ -116,7 +117,8 @@ def main(parser_data):
     print('Using %g dataloader workers' % nw)
 
     # load validation data set
-    val_dataset = VOC2012DataSet(VOC_root, transforms=data_transform["val"], train_set="val.txt")
+    # VOCdevkit -> VOC2012 -> ImageSets -> Main -> val.txt
+    val_dataset = VOCDataSet(VOC_root, "2012", transforms=data_transform["val"], train_set="val.txt")
     val_dataset_loader = torch.utils.data.DataLoader(val_dataset,
                                                      batch_size=batch_size,
                                                      shuffle=False,
@@ -131,8 +133,7 @@ def main(parser_data):
     # 载入你自己训练好的模型权重
     weights_path = parser_data.weights
     assert os.path.exists(weights_path), "not found {} file.".format(weights_path)
-    weights_dict = torch.load(weights_path, map_location=device)
-    model.load_state_dict(weights_dict['model'])
+    model.load_state_dict(torch.load(weights_path, map_location=device)['model'])
     # print(model)
 
     model.to(device)

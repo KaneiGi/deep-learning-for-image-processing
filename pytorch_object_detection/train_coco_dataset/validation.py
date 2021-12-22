@@ -103,6 +103,7 @@ def main(parser_data):
     assert os.path.exists(label_json_path), "json file {} dose not exist.".format(label_json_path)
     json_file = open(label_json_path, 'r')
     category_index = json.load(json_file)
+    json_file.close()
 
     coco_root = parser_data.data_path
 
@@ -141,8 +142,7 @@ def main(parser_data):
     # 载入你自己训练好的模型权重
     weights_path = parser_data.weights
     assert os.path.exists(weights_path), "not found {} file.".format(weights_path)
-    weights_dict = torch.load(weights_path, map_location=device)
-    model.load_state_dict(weights_dict['model'])
+    model.load_state_dict(torch.load(weights_path, map_location=device)['model'])
     # print(model)
 
     model.to(device)

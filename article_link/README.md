@@ -3,6 +3,7 @@
 -----
 
 ## 图像分类(Classification)
+- LeNet [http://yann.lecun.com/exdb/lenet/index.html](http://yann.lecun.com/exdb/lenet/index.html)
 - AlexNet [http://papers.nips.cc/paper/4824-imagenet-classification-with-deep-convolutional-neural-networks.pdf](http://papers.nips.cc/paper/4824-imagenet-classification-with-deep-convolutional-neural-networks.pdf)
 - ZFNet(Visualizing and Understanding Convolutional Networks) [https://arxiv.org/abs/1311.2901](https://arxiv.org/abs/1311.2901)
 - VGG [https://arxiv.org/abs/1409.1556](https://arxiv.org/abs/1409.1556)
@@ -30,33 +31,44 @@
 - Vision Transformer [https://arxiv.org/abs/2010.11929](https://arxiv.org/abs/2010.11929)
 - DeiT(Training data-efficient image transformers ) [https://arxiv.org/abs/2012.12877](https://arxiv.org/abs/2012.12877)
 - Swin Transformer [https://arxiv.org/abs/2103.14030](https://arxiv.org/abs/2103.14030)
+- Swin Transformer V2: Scaling Up Capacity and Resolution [https://arxiv.org/abs/2111.09883](https://arxiv.org/abs/2111.09883)
+- BEiT: BERT Pre-Training of Image Transformers [https://arxiv.org/abs/2106.08254](https://arxiv.org/abs/2106.08254)
+- MAE(Masked Autoencoders Are Scalable Vision Learners) [https://arxiv.org/abs/2111.06377](https://arxiv.org/abs/2111.06377)
 ------
 
 ## 目标检测(Object Detection)
 - R-CNN [https://arxiv.org/abs/1311.2524](https://arxiv.org/abs/1311.2524)
 - Fast R-CNN [https://arxiv.org/abs/1504.08083](https://arxiv.org/abs/1504.08083)
 - Faster R-CNN [https://arxiv.org/abs/1506.01497](https://arxiv.org/abs/1506.01497)
+- Cascade R-CNN: Delving into High Quality Object Detection [https://arxiv.org/abs/1712.00726](https://arxiv.org/abs/1712.00726)
 - Mask R-CNN [https://arxiv.org/abs/1703.06870](https://arxiv.org/abs/1703.06870)
 - SSD [https://arxiv.org/abs/1512.02325](https://arxiv.org/abs/1512.02325)
 - FPN(Feature Pyramid Networks for Object Detection) [https://arxiv.org/abs/1612.03144](https://arxiv.org/abs/1612.03144)
 - RetinaNet(Focal Loss for Dense Object Detection) [https://arxiv.org/abs/1708.02002](https://arxiv.org/abs/1708.02002)
 - Bag of Freebies for Training Object Detection Neural Networks [https://arxiv.org/abs/1902.04103](https://arxiv.org/abs/1902.04103)
 - YOLOv1 [https://arxiv.org/abs/1506.02640](https://arxiv.org/abs/1506.02640)
-- YOLOv2 [https://arxiv.org/abs/1612.08242](https://arxiv.org/abs/1506.02640)
+- YOLOv2 [https://arxiv.org/abs/1612.08242](https://arxiv.org/abs/1612.08242)
 - YOLOv3 [https://arxiv.org/abs/1804.02767](https://arxiv.org/abs/1804.02767)
 - YOLOv4 [https://arxiv.org/abs/2004.10934](https://arxiv.org/abs/2004.10934)
 - PP-YOLO [https://arxiv.org/abs/2007.12099](https://arxiv.org/abs/2007.12099)
 - PP-YOLOv2 [https://arxiv.org/abs/2104.10419](https://arxiv.org/abs/2104.10419)
+- CornerNet [https://arxiv.org/abs/1808.01244](https://arxiv.org/abs/1808.01244)
+- FCOS [https://arxiv.org/abs/1904.01355](https://arxiv.org/abs/1904.01355)
+- CenterNet [https://arxiv.org/abs/1904.07850](https://arxiv.org/abs/1904.07850)
 
 
-## 目标分割(Segmentation)
+## 图像分割(Segmentation)
 - FCN(Fully Convolutional Networks for Semantic Segmentation) [https://arxiv.org/abs/1411.4038](https://arxiv.org/abs/1411.4038)
 - UNet(U-Net: Convolutional Networks for Biomedical Image Segmentation) [https://arxiv.org/abs/1505.04597](https://arxiv.org/abs/1505.04597)
 - DeepLabv1(Semantic Image Segmentation with Deep Convolutional Nets and Fully Connected CRFs) [https://arxiv.org/abs/1412.7062](https://arxiv.org/abs/1412.7062)
 - DeepLabv2(Semantic Image Segmentation with Deep Convolutional Nets, Atrous Convolution, and Fully Connected CRFs) [https://arxiv.org/abs/1606.00915](https://arxiv.org/abs/1606.00915)
 - DeepLabv3(Rethinking Atrous Convolution for Semantic Image Segmentation) [https://arxiv.org/abs/1706.05587](https://arxiv.org/abs/1706.05587)
 - DeepLabv3+(Encoder-Decoder with Atrous Separable Convolution for Semantic Image Segmentation) [https://arxiv.org/abs/1802.02611](https://arxiv.org/abs/1802.02611)
+- Mask R-CNN [https://arxiv.org/abs/1703.06870](https://arxiv.org/abs/1703.06870)
 
+
+## 自然语言处理
+- Attention Is All You Need [https://arxiv.org/abs/1706.03762](https://arxiv.org/abs/1706.03762)
 
 ## Others
 - Microsoft COCO: Common Objects in Context [https://arxiv.org/abs/1405.0312](https://arxiv.org/abs/1405.0312)
