@@ -19,7 +19,7 @@ class Backbone(nn.Module):
 
         conv4_block1 = self.feature_extractor[-1][0]
 
-        # 修改conv4_block1的步距，从2->1
+        # 修改conv4_block1的步距，从2->1,这里只是更改了步距，预先加载的参数并没有变化
         conv4_block1.conv1.stride = (1, 1)
         conv4_block1.conv2.stride = (1, 1)
         conv4_block1.downsample[0].stride = (1, 1)
@@ -48,12 +48,14 @@ class SSD300(nn.Module):
         # out_channels = [1024, 512, 512, 256, 256, 256] for resnet50
         for nd, oc in zip(self.num_defaults, self.feature_extractor.out_channels):
             # nd is number_default_boxes, oc is output_channel
-            location_extractors.append(nn.Conv2d(oc, nd * 4, kernel_size=3, padding=1))
+            location_extractors.append(nn.Conv2d(oc, nd * 4, kernel_size=3,
+                                                 padding=1))  # 这里只预测n个anchor的位置参数，而不是n个anchor里面，不同的种类再预测一个位置参数（n*num_classes*4)
             confidence_extractors.append(nn.Conv2d(oc, nd * self.num_classes, kernel_size=3, padding=1))
 
-        self.loc = nn.ModuleList(location_extractors)
-        self.conf = nn.ModuleList(confidence_extractors)
-        self._init_weights()
+        self.loc = nn.ModuleList(
+            location_extractors)  # modulelist用法和list相同，区别在于modulelist中添加子module以后，其参数也会自动注册到整个list中
+        self.conf = nn.ModuleList(confidence_extractors)  # 但是不能实现sequence那样的自动向前传播过程，需要用for循环遍历
+        self._init_weights()  # 这里之所以需要用modulelist是因为需要调用中间的计算结果
 
         default_box = dboxes300_coco()
         self.compute_loss = Loss(default_box)
@@ -90,7 +92,7 @@ class SSD300(nn.Module):
                     nn.init.xavier_uniform_(param)
 
     # Shape the classifier to the view of bboxes
-    def bbox_view(self, features, loc_extractor, conf_extractor):
+    def bbox_view(self, features, loc_extractor, conf_extractor):  # 在这一步由各层抽取的特征进行预测，并且改变了tensor形状
         locs = []
         confs = []
         for f, l, c in zip(features, loc_extractor, conf_extractor):
@@ -121,9 +123,10 @@ class SSD300(nn.Module):
         if self.training:
             if targets is None:
                 raise ValueError("In training mode, targets should be passed")
-            # bboxes_out (Tensor 8732 x 4), labels_out (Tensor 8732)
+            # bboxes_out (Tensor batch_size x 8732 x 4), labels_out (Tensor batch_size x 8732)
             bboxes_out = targets['boxes']
-            bboxes_out = bboxes_out.transpose(1, 2).contiguous()
+            bboxes_out = bboxes_out.transpose(1,
+                                              2).contiguous()  # 由于预测出来的default_box的形状是batch_size x 4 8732 ,为了对应上所以需要转化一下形状
             # print(bboxes_out.is_contiguous())
             labels_out = targets['labels']
             # print(labels_out.is_contiguous())
@@ -145,6 +148,7 @@ class Loss(nn.Module):
         2. Localization Loss: Only on positive labels
         Suppose input dboxes has the shape 8732x4
     """
+
     def __init__(self, dboxes):
         super(Loss, self).__init__()
         # Two factor are from following links
@@ -167,7 +171,8 @@ class Loss(nn.Module):
         :param loc: anchor匹配到的对应GTBOX Nx4x8732
         :return:
         """
-        gxy = self.scale_xy * (loc[:, :2, :] - self.dboxes[:, :2, :]) / self.dboxes[:, 2:, :]  # Nx2x8732
+        gxy = self.scale_xy * (loc[:, :2, :] - self.dboxes[:, :2, :]) / self.dboxes[:, 2:,
+                                                                        :]  # Nx2x8732,听说是用来加速计算收敛的，可能浮点位不好计算
         gwh = self.scale_wh * (loc[:, 2:, :] / self.dboxes[:, 2:, :]).log()  # Nx2x8732
         return torch.cat((gxy, gwh), dim=1).contiguous()
 
@@ -191,7 +196,8 @@ class Loss(nn.Module):
 
         # sum on four coordinates, and mask
         # 计算定位损失(只有正样本)
-        loc_loss = self.location_loss(ploc, vec_gd).sum(dim=1)  # Tensor: [N, 8732]
+        loc_loss = self.location_loss(ploc, vec_gd).sum(
+            dim=1)  # Tensor: [N, 8732],ploc 的形状是batch_size 4 8732 ,计算损失后形状保持不变
         loc_loss = (mask.float() * loc_loss).sum(dim=1)  # Tenosr: [N]
 
         # hard negative mining Tenosr: [N, 8732]
@@ -220,6 +226,6 @@ class Loss(nn.Module):
         # eg. [15, 3, 5, 0] -> [1.0, 1.0, 1.0, 0.0]
         num_mask = torch.gt(pos_num, 0).float()  # 统计一个batch中的每张图像中是否存在正样本
         pos_num = pos_num.float().clamp(min=1e-6)  # 防止出现分母为零的情况
-        ret = (total_loss * num_mask / pos_num).mean(dim=0)  # 只计算存在正样本的图像损失
+        ret = (total_loss * num_mask / pos_num).mean(
+            dim=0)  # 只计算存在正样本的图像损失，但是如果正样本为零，负样本数量是正样本的3倍，还是零，所以感觉* num_mask这步可以省略
         return ret
-

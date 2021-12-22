@@ -54,7 +54,7 @@ def main():
         "val": transforms.Compose([transforms.ToTensor()])
     }
 
-    VOC_root = "./"  # VOCdevkit
+    VOC_root = "C:/Users/wei43/Downloads"  # VOCdevkit
     # check voc root
     if os.path.exists(os.path.join(VOC_root, "VOCdevkit")) is False:
         raise FileNotFoundError("VOCdevkit dose not in path:'{}'.".format(VOC_root))
@@ -69,7 +69,7 @@ def main():
     train_data_loader = torch.utils.data.DataLoader(train_data_set,
                                                     batch_size=batch_size,
                                                     shuffle=True,
-                                                    num_workers=nw,
+                                                    num_workers=0,
                                                     collate_fn=train_data_set.collate_fn)
 
     # load validation data set
@@ -79,7 +79,7 @@ def main():
                                                       batch_size=batch_size,
                                                       shuffle=False,
                                                       pin_memory=True,
-                                                      num_workers=nw,
+                                                      num_workers=0,
                                                       collate_fn=train_data_set.collate_fn)
 
     # create model num_classes equal background + 20 classes

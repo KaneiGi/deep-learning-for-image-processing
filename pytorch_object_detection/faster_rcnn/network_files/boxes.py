@@ -70,12 +70,12 @@ def batched_nms(boxes, scores, idxs, iou_threshold):
     # we add an offset to all the boxes. The offset is dependent
     # only on the class idx, and is large enough so that boxes
     # from different classes do not overlap
-    # 获取所有boxes中最大的坐标值（xmin, ymin, xmax, ymax）
+    # 获取所有boxes中最大的坐标值（xmin, ymin, xmax, ymax），获得一个含一个元素的tensor
     max_coordinate = boxes.max()
 
     # to(): Performs Tensor dtype and/or device conversion
     # 为每一个类别/每一层生成一个很大的偏移量
-    # 这里的to只是让生成tensor的dytpe和device与boxes保持一致
+    # 这里的to只是让生成tensor的dytpe和device与boxes保持一致，idxs是一个维度1的tensor，同样offset也是维度为1
     offsets = idxs.to(boxes) * (max_coordinate + 1)
     # boxes加上对应层的偏移量后，保证不同类别/层之间boxes不会有重合的现象
     boxes_for_nms = boxes + offsets[:, None]
@@ -101,7 +101,8 @@ def remove_small_boxes(boxes, min_size):
     keep = torch.logical_and(torch.ge(ws, min_size), torch.ge(hs, min_size))
     # nonzero(): Returns a tensor containing the indices of all non-zero elements of input
     # keep = keep.nonzero().squeeze(1)
-    keep = torch.where(keep)[0]
+    keep1 = torch.where(keep) # 返回一个2维矩阵，行数等于nozero或着true的个数，列数等于keep的维度，就是true所在位置的引索
+    keep = keep1[0]#这里的where好像默认是as_tuple模式
     return keep
 
 
@@ -132,8 +133,8 @@ def clip_boxes_to_image(boxes, size):
         boxes_x = boxes_x.clamp(min=0, max=width)   # 限制x坐标范围在[0,width]之间
         boxes_y = boxes_y.clamp(min=0, max=height)  # 限制y坐标范围在[0,height]之间
 
-    clipped_boxes = torch.stack((boxes_x, boxes_y), dim=dim)
-    return clipped_boxes.reshape(boxes.shape)
+    clipped_boxes = torch.stack((boxes_x, boxes_y), dim=dim)# xmin xmax ymin ymax
+    return clipped_boxes.reshape(boxes.shape)#xmin ymin xmin xmax
 
 
 def box_area(boxes):
@@ -176,6 +177,6 @@ def box_iou(boxes1, boxes2):
     wh = (rb - lt).clamp(min=0)  # [N,M,2]
     inter = wh[:, :, 0] * wh[:, :, 1]  # [N,M]
 
-    iou = inter / (area1[:, None] + area2 - inter)
+    iou = inter / (area1[:, None] + area2 - inter)#还是采用广播机制，同维度要求形状相同
     return iou
 

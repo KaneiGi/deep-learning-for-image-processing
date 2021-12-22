@@ -76,11 +76,11 @@ class AnchorsGenerator(nn.Module):
         """
         scales = torch.as_tensor(scales, dtype=dtype, device=device)
         aspect_ratios = torch.as_tensor(aspect_ratios, dtype=dtype, device=device)
-        h_ratios = torch.sqrt(aspect_ratios)
+        h_ratios = torch.sqrt(aspect_ratios)#1：1，1：sqrt(2),sqrt(2):1
         w_ratios = 1.0 / h_ratios
 
         # [r1, r2, r3]' * [s1, s2, s3]
-        # number of elements is len(ratios)*len(scales)
+        # number of elements is len(ratios)*len(scales)，也使用了广播机制
         ws = (w_ratios[:, None] * scales[None, :]).view(-1)
         hs = (h_ratios[:, None] * scales[None, :]).view(-1)
 
@@ -100,8 +100,8 @@ class AnchorsGenerator(nn.Module):
             if cell_anchors[0].device == device:
                 return
 
-        # 根据提供的sizes和aspect_ratios生成anchors模板
-        # anchors模板都是以(0, 0)为中心的anchor
+        # 根据提供的sizes和aspect_ratios生成anchors模板，5x3一共15个bndbox,但是目前还是在特征图上面生成的，而且还是不同的特征层对应不同的尺寸，比例都是一样的
+        # anchors模板都是以(0, 0)为中心的anchor，而且数据都取整过
         cell_anchors = [
             self.generate_anchors(sizes, aspect_ratios, dtype, device)
             for sizes, aspect_ratios in zip(self.sizes, self.aspect_ratios)
@@ -118,7 +118,7 @@ class AnchorsGenerator(nn.Module):
         # type: (List[List[int]], List[List[Tensor]]) -> List[Tensor]
         """
         anchors position in grid coordinate axis map into origin image
-        计算预测特征图对应原始图像上的所有anchors的坐标
+        计算预测特征图对应原始图像上的所有bndbox的坐标
         Args:
             grid_sizes: 预测特征矩阵的height和width
             strides: 预测特征矩阵上一步对应原始图像上的步距
@@ -152,11 +152,11 @@ class AnchorsGenerator(nn.Module):
 
             # For every (base anchor, output anchor) pair,
             # offset each zero-centered base anchor by the center of the output anchor.
-            # 将anchors模板与原图上的坐标偏移量相加得到原图上所有anchors的坐标信息(shape不同时会使用广播机制)
+            # 将anchors模板与原图上的坐标偏移量相加得到原图上所有anchors的坐标信息(shape不同时会使用广播机制)，而且anchor没有经过缩放
             shifts_anchor = shifts.view(-1, 1, 4) + base_anchors.view(1, -1, 4)
             anchors.append(shifts_anchor.reshape(-1, 4))
 
-        return anchors  # List[Tensor(all_num_anchors, 4)]
+        return anchors  # List[Tensor(all_num_anchors, 4)], in one image
 
     def cached_grid_anchors(self, grid_sizes, strides):
         # type: (List[List[int]], List[List[Tensor]]) -> List[Tensor]
@@ -166,6 +166,7 @@ class AnchorsGenerator(nn.Module):
         if key in self._cache:
             return self._cache[key]
         anchors = self.grid_anchors(grid_sizes, strides)
+        #将各个特征层上面的bndbox映射到原图上面，这时候anchor还是一个列表，将不同特征层对应到原图的bndbox区分开来,对应的是在一张图上面的全部anchor，而且anchor的尺寸没有经过缩放
         self._cache[key] = anchors
         return anchors
 
@@ -177,20 +178,26 @@ class AnchorsGenerator(nn.Module):
         # 获取输入图像的height和width
         image_size = image_list.tensors.shape[-2:]
 
-        # 获取变量类型和设备类型
+        # 获取变量类型和设备类型，保证所有的变量都在同一个device里面，一般新建一个tensor都要进行这样的操作
         dtype, device = feature_maps[0].dtype, feature_maps[0].device
 
         # one step in feature map equate n pixel stride in origin image
-        # 计算特征层上的一步等于原始图像上的步长
+        # 计算特征层上的一步等于原始图像上的步长，应该是缩放比例更加合适
         strides = [[torch.tensor(image_size[0] // g[0], dtype=torch.int64, device=device),
                     torch.tensor(image_size[1] // g[1], dtype=torch.int64, device=device)] for g in grid_sizes]
 
-        # 根据提供的sizes和aspect_ratios生成anchors模板
+        # 根据提供的sizes和aspect_ratios生成anchors模板，感觉这里应该叫做bounding box才合适，由一个anchor，即锚点，按照给定的面积和比例生成多个bndbox
         self.set_cell_anchors(dtype, device)
 
-        # 计算/读取所有anchors的坐标信息（这里的anchors信息是映射到原图上的所有anchors信息，不是anchors模板）
-        # 得到的是一个list列表，对应每张预测特征图映射回原图的anchors坐标信息
+        #这里的self现在有aspect_ratios,sizes(这两个都是tuple,用来计算每个anchor的bndbox尺寸）
+        #此外还有一个cell_anchors属性，记载了由上面的比例的尺寸计算出来的bodbox尺寸
+
+
         anchors_over_all_feature_maps = self.cached_grid_anchors(grid_sizes, strides)
+        # 计算/读取所有anchors的坐标信息（这里的anchors信息是映射到原图上的所有anchors信息，不是anchors模板）
+        # 得到的是一个list列表，对应每层预测特征图映射回原图的bndbox（即一层特征图上的一个像素对应一个anchor，再对应三个不同比例的bndbox）坐标信息
+        # bodbox的总数是特征图层数 x 特征图尺寸 x 一个anchor对应的bndbox个数（由尺寸和比例决定，self.sizes,self.aspect_ratios）
+
 
         anchors = torch.jit.annotate(List[List[torch.Tensor]], [])
         # 遍历一个batch中的每张图像
@@ -200,11 +207,13 @@ class AnchorsGenerator(nn.Module):
             for anchors_per_feature_map in anchors_over_all_feature_maps:
                 anchors_in_image.append(anchors_per_feature_map)
             anchors.append(anchors_in_image)
-        # 将每一张图像的所有预测特征层的anchors坐标信息拼接在一起
-        # anchors是个list，每个元素为一张图像的所有anchors信息
+            # 等于 acchors_in_image = anchors_over_all_feature_maps
+        # 将每一张图像的所有预测特征层的bndbox坐标信息拼接在一起
+        # anchors是个list，每个元素为一张图像的所有bndbox信息,cat的作用是把一个原图里面所有特征层上面的anchor拼接起来
         anchors = [torch.cat(anchors_per_image) for anchors_per_image in anchors]
         # Clear the cache in case that memory leaks.
         self._cache.clear()
+        #里面缓存了一张原图的所有特征层上面的bodbox映射到原图上面的bndbox的信息，本身是一个字典，字典的元素是列表，列表的各个元素是按照不同特征层分开的
         return anchors
 
 
@@ -238,9 +247,9 @@ class RPNHead(nn.Module):
         bbox_reg = []
         for i, feature in enumerate(x):
             t = F.relu(self.conv(feature))
-            logits.append(self.cls_logits(t))
-            bbox_reg.append(self.bbox_pred(t))
-        return logits, bbox_reg
+            logits.append(self.cls_logits(t))  #从256个通道变为3通道，代表着三种不同的尺寸的bndbox的属性值：1正样本 0 负样本 -1 背景
+            bbox_reg.append(self.bbox_pred(t)) #从256变成12通道，分别对应三个bndbox的边框和实际边框ground trues的修正参数t[4]，但是实际上只有正样本的修正参数会被计算误差
+        return logits, bbox_reg                #和以往不同，记录的特征信息在dim1
 
 
 def permute_and_flatten(layer, N, A, C, H, W):
@@ -265,8 +274,8 @@ def permute_and_flatten(layer, N, A, C, H, W):
     layer = layer.view(N, -1, C,  H, W)
     # 调换tensor维度
     layer = layer.permute(0, 3, 4, 1, 2)  # [N, H, W, -1, C]
-    layer = layer.reshape(N, -1, C)
-    return layer
+    layer = layer.reshape(N, -1, C)     #把三个bndbox的属性值从dim1调换到dim3,这样更符合直觉
+    return layer        #之前之所以在dim1是因为预测值直接使用卷积得出的，如果多连接一层全连接层，就可以直接得到上面的形式，但是参数会增加很多
 
 
 def concat_box_prediction_layers(box_cls, box_regression):
@@ -297,7 +306,7 @@ def concat_box_prediction_layers(box_cls, box_regression):
         C = AxC // A
 
         # [N, -1, C]
-        box_cls_per_level = permute_and_flatten(box_cls_per_level, N, A, C, H, W)
+        box_cls_per_level = permute_and_flatten(box_cls_per_level, N, A, C, H, W)   #把每一个特征层的分类结果调整到dim-1
         box_cls_flattened.append(box_cls_per_level)
 
         # [N, -1, C]
@@ -418,19 +427,19 @@ class RegionProposalNetwork(torch.nn.Module):
                 # 因为后面是通过labels_per_image变量来记录正样本位置的，
                 # 所以负样本和舍弃的样本对应的gt_boxes信息并没有什么意义，
                 # 反正计算目标边界框回归损失时只会用到正样本。
-                matched_gt_boxes_per_image = gt_boxes[matched_idxs.clamp(min=0)]
+                matched_gt_boxes_per_image = gt_boxes[matched_idxs.clamp(min=0)]#给每个anchor分配对应的gtbox，-1，-2都统一对应gt0，单纯为了引索不越界，正常来说背景和废弃的anchor不分配gtbox
 
                 # 记录所有anchors匹配后的标签(正样本处标记为1，负样本处标记为0，丢弃样本处标记为-2)
                 labels_per_image = matched_idxs >= 0
-                labels_per_image = labels_per_image.to(dtype=torch.float32)
+                labels_per_image = labels_per_image.to(dtype=torch.float32)#把false 和 True 转换成0和1，这里是1是真实的标签值，0的话包含背景和废弃标签（-1，-2）
 
                 # background (negative examples)
                 bg_indices = matched_idxs == self.proposal_matcher.BELOW_LOW_THRESHOLD  # -1
-                labels_per_image[bg_indices] = 0.0
+                labels_per_image[bg_indices] = 0.0#将背景的标签修正过来
 
                 # discard indices that are between thresholds
                 inds_to_discard = matched_idxs == self.proposal_matcher.BETWEEN_THRESHOLDS  # -2
-                labels_per_image[inds_to_discard] = -1.0
+                labels_per_image[inds_to_discard] = -1.0#将废弃的标签修正过来
 
             labels.append(labels_per_image)
             matched_gt_boxes.append(matched_gt_boxes_per_image)
@@ -448,16 +457,16 @@ class RegionProposalNetwork(torch.nn.Module):
         """
         r = []  # 记录每个预测特征层上预测目标概率前pre_nms_top_n的索引信息
         offset = 0
-        # 遍历每个预测特征层上的预测目标概率信息
+        # 遍历每个预测特征层上的预测目标概率信息，在dim =1 的维度上 ，以固定的步长，或着指定的区间，将tensor分割开来
         for ob in objectness.split(num_anchors_per_level, 1):
             if torchvision._is_tracing():
                 num_anchors, pre_nms_top_n = _onnx_get_num_anchors_and_pre_nms_top_n(ob, self.pre_nms_top_n())
             else:
                 num_anchors = ob.shape[1]  # 预测特征层上的预测的anchors个数
-                pre_nms_top_n = min(self.pre_nms_top_n(), num_anchors)
+                pre_nms_top_n = min(self.pre_nms_top_n(), num_anchors)#和预先设置的阈值进行比较，选择较小值
 
             # Returns the k largest elements of the given input tensor along a given dimension
-            _, top_n_idx = ob.topk(pre_nms_top_n, dim=1)
+            _, top_n_idx = ob.topk(pre_nms_top_n, dim=1)#取的是单个切片的索引值，所以需要加上偏差值才是总体的索引值，[batch_size,top_k_idx]
             r.append(top_n_idx + offset)
             offset += num_anchors
         return torch.cat(r, dim=1)
@@ -480,7 +489,7 @@ class RegionProposalNetwork(torch.nn.Module):
 
         # do not backprop throught objectness
         objectness = objectness.detach()
-        objectness = objectness.reshape(num_images, -1)
+        objectness = objectness.reshape(num_images, -1) #变成两个维度，[batch_size,每张原图的所有的anchor的预测结果]
 
         # Returns a tensor of size size filled with fill_value
         # levels负责记录分隔不同预测特征层上的anchors索引信息
@@ -488,21 +497,21 @@ class RegionProposalNetwork(torch.nn.Module):
                   for idx, n in enumerate(num_anchors_per_level)]
         levels = torch.cat(levels, 0)
 
-        # Expand this tensor to the same size as objectness
+        # Expand this tensor to the same size as objectness,level是代表一张图里面各个bndbox所在的特征层的引索值，expand一下相当于将level复制了一遍
         levels = levels.reshape(1, -1).expand_as(objectness)
 
         # select top_n boxes independently per level before applying nms
-        # 获取每张预测特征图上预测概率排前pre_nms_top_n的anchors索引值
+        # 获取每张预测特征图上预测概率排前pre_nms_top_n的anchors索引值，一张原图的每层特征图都会取前min(2000,实际每层anchor数），然后拼接成一张原图的前top排名，总的形状是[batch_size,一张原图的top]
         top_n_idx = self._get_top_n_idx(objectness, num_anchors_per_level)
 
         image_range = torch.arange(num_images, device=device)
         batch_idx = image_range[:, None]  # [batch_size, 1]
 
-        # 根据每个预测特征层预测概率排前pre_nms_top_n的anchors索引值获取相应概率信息
-        objectness = objectness[batch_idx, top_n_idx]
-        levels = levels[batch_idx, top_n_idx]
+        # 根据每个预测特征层预测概率排前pre_nms_top_n的anchors索引值获取相应概率信息，还有所在的特征层引索值
+        objectness = objectness[batch_idx, top_n_idx]   #[batch, bndbox_number]
+        levels = levels[batch_idx, top_n_idx]   #[batch, bndbox_number]
         # 预测概率排前pre_nms_top_n的anchors索引值获取相应bbox坐标信息
-        proposals = proposals[batch_idx, top_n_idx]
+        proposals = proposals[batch_idx, top_n_idx] # [batch, bndbox_number,4]
 
         objectness_prob = torch.sigmoid(objectness)
 
@@ -510,10 +519,10 @@ class RegionProposalNetwork(torch.nn.Module):
         final_scores = []
         # 遍历每张图像的相关预测信息
         for boxes, scores, lvl, img_shape in zip(proposals, objectness_prob, levels, image_shapes):
-            # 调整预测的boxes信息，将越界的坐标调整到图片边界上
-            boxes = box_ops.clip_boxes_to_image(boxes, img_shape)
+            # 调整预测的boxes信息，将越界的坐标调整到图片边界上,image_shapes 储存着图像没有归一化前的尺寸
+            boxes = box_ops.clip_boxes_to_image(boxes, img_shape)   #[bndbox_number,4]
 
-            # 返回boxes满足宽，高都大于min_size的索引
+            # 返回boxes满足宽，高都大于min_size的索引，一维的tensor
             keep = box_ops.remove_small_boxes(boxes, self.min_size)
             boxes, scores, lvl = boxes[keep], scores[keep], lvl[keep]
 
@@ -522,10 +531,10 @@ class RegionProposalNetwork(torch.nn.Module):
             keep = torch.where(torch.ge(scores, self.score_thresh))[0]  # ge: >=
             boxes, scores, lvl = boxes[keep], scores[keep], lvl[keep]
 
-            # non-maximum suppression, independently done per level
+            # non-maximum suppression, independently done per level，最大化抑制，这个步骤proposal的数量大幅减少，应该是先按概率排序，然后在序列里面剔除掉重复的box
             keep = box_ops.batched_nms(boxes, scores, lvl, self.nms_thresh)
 
-            # keep only topk scoring predictions
+            # keep only topk scoring predictions，取前2000个，这里是一副原图上面所有的proposal取前2000个
             keep = keep[: self.post_nms_top_n()]
             boxes, scores = boxes[keep], scores[keep]
 
@@ -561,7 +570,7 @@ class RegionProposalNetwork(torch.nn.Module):
 
         labels = torch.cat(labels, dim=0)
         regression_targets = torch.cat(regression_targets, dim=0)
-
+        #这里正样本和负样本分别在各自的batch_size维度上面拼接，然后再拼接在一起，这时候顺序就无关紧要了，因为里面的元素都是相对于总的batch_size的索引
         # 计算边界框回归损失
         box_loss = det_utils.smooth_l1_loss(
             pred_bbox_deltas[sampled_pos_inds],
@@ -570,14 +579,14 @@ class RegionProposalNetwork(torch.nn.Module):
             size_average=False,
         ) / (sampled_inds.numel())
 
-        # 计算目标预测概率损失
+        # 计算目标预测概率损失，选取正负样本的时候，不需要按照预测概率排序，而是随机选取的
         objectness_loss = F.binary_cross_entropy_with_logits(
             objectness[sampled_inds], labels[sampled_inds]
         )
 
         return objectness_loss, box_loss
 
-    def forward(self,
+    def forward(self,          # image是指Image类，包括了归一化尺寸后的图片和原先的尺寸，targets是人工标注信息
                 images,        # type: ImageList
                 features,      # type: Dict[str, Tensor]
                 targets=None   # type: Optional[List[Dict[str, Tensor]]]
@@ -601,11 +610,11 @@ class RegionProposalNetwork(torch.nn.Module):
         """
         # RPN uses all feature maps that are available
         # features是所有预测特征层组成的OrderedDict
-        features = list(features.values())
+        features = list(features.values())  #有序字典，代表由浅到深的特征层，然后再转换成列表,里面包含batch_size
 
         # 计算每个预测特征层上的预测目标概率和bboxes regression参数
         # objectness和pred_bbox_deltas都是list
-        objectness, pred_bbox_deltas = self.head(features)
+        objectness, pred_bbox_deltas = self.head(features)  #[batch_size，三个bndbox的类别或着坐标，特征层尺寸(height,width)]
 
         # 生成一个batch图像的所有anchors信息,list(tensor)元素个数等于batch_size
         anchors = self.anchor_generator(images, features)
@@ -614,22 +623,24 @@ class RegionProposalNetwork(torch.nn.Module):
         num_images = len(anchors)
 
         # numel() Returns the total number of elements in the input tensor.
-        # 计算每个预测特征层上的对应的anchors数量
+        # 计算每个预测特征层上的对应的anchors数量，objectness 是一个列表，如果预测使用了多层特征图，那么列表的元素等于每层特征图
+        #感觉应该是每个预测特征层对每个每个anchor生成的三个bndbox
         num_anchors_per_level_shape_tensors = [o[0].shape for o in objectness]
         num_anchors_per_level = [s[0] * s[1] * s[2] for s in num_anchors_per_level_shape_tensors]
 
-        # 调整内部tensor格式以及shape
+        # 调整内部tensor格式以及shape，将batch，layers,height,width都打包到一一个维度，另一个维度是bndbox的属性值或着坐标值
         objectness, pred_bbox_deltas = concat_box_prediction_layers(objectness,
                                                                     pred_bbox_deltas)
 
         # apply pred_bbox_deltas to anchors to obtain the decoded proposals
         # note that we detach the deltas because Faster R-CNN do not backprop through
         # the proposals
-        # 将预测的bbox regression参数应用到anchors上得到最终预测bbox坐标
-        proposals = self.box_coder.decode(pred_bbox_deltas.detach(), anchors)
-        proposals = proposals.view(num_images, -1, 4)
+        # 将预测的bbox regression参数应用到anchors上得到最终预测坐标，[batch中所有的bbox的数量，4]
+        # # 待定：按照预设的比例和尺寸不管在特征图还是原图上生成的边框都被成为anchor，乘上预测的转换指数后生成的边框成为bounding box ,bbox
+        proposals = self.box_coder.decode(pred_bbox_deltas.detach(), anchors)#[所有batch_size里面的anchor数量，1，4]
+        proposals = proposals.view(num_images, -1, 4)   #[batch_size,每张原图上面的bndbox数量，4]
 
-        # 筛除小boxes框，nms处理，根据预测概率获取前post_nms_top_n个目标
+        # 筛除小boxes框，nms处理，根据预测概率获取前post_nms_top_n个目标，变成列表，元素个数是batch_size，boxes每个元素是二维tensor，scores每个元素是一维tensor
         boxes, scores = self.filter_proposals(proposals, objectness, images.image_sizes, num_anchors_per_level)
 
         losses = {}

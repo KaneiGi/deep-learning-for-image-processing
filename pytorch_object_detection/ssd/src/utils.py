@@ -21,7 +21,7 @@ import numpy as np
 #     N = box1.size(0)
 #     M = box2.size(0)
 #
-#     # (N, 4) -> (N, 1, 4) -> (N, M, 4)
+#     # (N, 4) -> (N, 1, 4) -> (N, M, 4),缺点是没有利用广播机制，需要人为将两个tensor的形状对齐
 #     be1 = box1.unsqueeze(1).expand(-1, M, -1)  # -1 means not changing the size of that dimension
 #     # (M, 4) -> (1, M, 4) -> (N, M, 4)
 #     be2 = box2.unsqueeze(0).expand(N, -1, -1)
@@ -125,30 +125,34 @@ class Encoder(object):
             input  : bboxes_in (Tensor nboxes x 4), labels_in (Tensor nboxes)
             output : bboxes_out (Tensor 8732 x 4), labels_out (Tensor 8732)
             criteria : IoU threshold of bboexes
+            针对单张图片的操作，所有没有batch_size
+            nboxes是指人工标记的标签
         """
         ious = calc_iou_tensor(bboxes_in, self.dboxes)   # [nboxes, 8732]
-        # [8732,]
+        # [8732,]，对于二维数据，dim=0是列，dim=1是行
         best_dbox_ious, best_dbox_idx = ious.max(dim=0)  # 寻找每个default box匹配到的最大IoU bboxes_in
         # [nboxes,]
         best_bbox_ious, best_bbox_idx = ious.max(dim=1)  # 寻找每个bboxes_in匹配到的最大IoU default box
 
         # set best ious 2.0
-        # 将每个bboxes_in匹配到的最佳default box设置为正样本（对应论文中Matching strategy的第一条）
-        best_dbox_ious.index_fill_(0, best_bbox_idx, 2.0)
+        # 将每个bboxes_in匹配到的最佳default box设置为正样本（对应论文中Matching strategy的第一条），改iou的内容值，dim=1，即横向比较找到与bbox最大的iou对应的dbox，改成2
+        best_dbox_ious.index_fill_(0, best_bbox_idx, 2.0)#按照指定的维度轴dim 根据index去对应位置，将原tensor用参数val值填充，这里强调一下，index必须是1D tensor，
+        # index去指定轴上索引数据时候会广播
 
-        # 将相应default box的匹配最大IoU bboxes_in信息替换成best_bbox_idx
-        idx = torch.arange(0, best_bbox_idx.size(0), dtype=torch.int64)
-        best_dbox_idx[best_bbox_idx[idx]] = idx
-
+        # 将相应default box的匹配最大IoU bboxes_in信息替换成best_bbox_idx，更改dbox的idx，记录dim=1里面匹配到最大的bbox的idx的值，之前是dim=0里面，匹配最大iou的bbox的idx
+        idx = torch.arange(0, best_bbox_idx.size(0), dtype=torch.int64)#取bbox的个数
+        best_dbox_idx[best_bbox_idx[idx]] = idx#为每个bbox，将其idx分配给与其最匹配的dbox
+        #以上还是在横向比较，以bbox为主，挑最匹配的dbox
         # filter IoU > 0.5
         # 寻找与bbox_in iou大于0.5的default box,对应论文中Matching strategy的第二条(这里包括了第一条匹配到的信息)
         masks = best_dbox_ious > criteria
-        # [8732,]
+        # [8732,]，
         labels_out = torch.zeros(self.nboxes, dtype=torch.int64)
         labels_out[masks] = labels_in[best_dbox_idx[masks]]
-        bboxes_out = self.dboxes.clone()
         # 将default box匹配到正样本的地方设置成对应正样本box信息
+        bboxes_out = self.dboxes.clone()
         bboxes_out[masks, :] = bboxes_in[best_dbox_idx[masks], :]
+        #这里的背景的bbox坐标取的和default_box一致，而faster_rcnn里面取的是和第一个类别的坐标
         # Transform format to xywh format
         x = 0.5 * (bboxes_out[:, 0] + bboxes_out[:, 2])  # x
         y = 0.5 * (bboxes_out[:, 1] + bboxes_out[:, 3])  # y
@@ -349,7 +353,8 @@ class DefaultBoxes(object):
         # According to https://github.com/weiliu89/caffe
         # Calculation method slightly different from paper
         # [8, 16, 32, 64, 100, 300]
-        self.steps = steps    # 每个特征层上的一个cell在原图上的跨度
+        self.steps = steps    # 每个特征层上的一个cell在原图上的跨度，如果直接用feat_size 作为default box的锚点的话，不需要这里的step
+        #想到的一个解释是如果直接拿特征图的尺寸除以原图尺寸，有些比例是无限不循环小数，增加了计算量
 
         # [21, 45, 99, 153, 207, 261, 315]
         self.scales = scales  # 每个特征层上预测的default box的scale

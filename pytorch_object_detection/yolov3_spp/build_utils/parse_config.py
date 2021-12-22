@@ -10,6 +10,10 @@ def parse_model_cfg(path: str):
     # 读取文件信息
     with open(path, "r") as f:
         lines = f.read().split("\n")
+    # 如果使用 readlines 虽然也可以按照行分成列表的形式，但是会带一个\n
+    # Python strip() 方法用于移除字符串头尾指定的字符（默认为空格或换行符）或字符序列
+    # 所以可以在readlines()之后再加上strip()
+    # split 是按照某个符号分割的意思， strip 是去除首尾的空格或着换行符
 
     # 去除空行和注释行
     lines = [x for x in lines if x and not x.startswith("#")]
@@ -20,7 +24,7 @@ def parse_model_cfg(path: str):
     for line in lines:
         if line.startswith("["):  # this marks the start of a new block
             mdefs.append({})
-            mdefs[-1]["type"] = line[1:-1].strip()  # 记录module类型
+            mdefs[-1]["type"] = line[1:-1].strip()  # 记录module类型,由于是最近添加进来，所以使用-1引索
             # 如果是卷积模块，设置默认不使用BN
             if mdefs[-1]["type"] == "convolutional":
                 mdefs[-1]["batch_normalize"] = 0
@@ -35,6 +39,7 @@ def parse_model_cfg(path: str):
                 mdefs[-1][key] = np.array([float(x) for x in val.split(",")]).reshape((-1, 2))  # np anchors
             elif (key in ["from", "layers", "mask"]) or (key == "size" and "," in val):
                 mdefs[-1][key] = [int(x) for x in val.split(",")]
+                # 对于有多个数值的val进行处理
             else:
                 # TODO: .isnumeric() actually fails to get the float case
                 if val.isnumeric():  # return int or float 如果是数值的情况

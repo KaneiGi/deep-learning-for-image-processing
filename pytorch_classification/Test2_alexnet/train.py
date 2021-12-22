@@ -25,9 +25,10 @@ def main():
                                    transforms.ToTensor(),
                                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])}
 
-    data_root = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # get data root path
-    image_path = os.path.join(data_root, "data_set", "flower_data")  # flower data set path
-    assert os.path.exists(image_path), "{} path does not exist.".format(image_path)
+    # data_root = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # get data root path
+    # image_path = os.path.join(data_root, "data_set", "flower_data")  # flower data set path
+    # assert os.path.exists(image_path), "{} path does not exist.".format(image_path)
+    image_path = "C:/Users/wei43/Downloads/deep_learning_data/flower_data"
     train_dataset = datasets.ImageFolder(root=os.path.join(image_path, "train"),
                                          transform=data_transform["train"])
     train_num = len(train_dataset)
@@ -46,14 +47,14 @@ def main():
 
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size, shuffle=True,
-                                               num_workers=nw)
+                                               num_workers=0)
 
     validate_dataset = datasets.ImageFolder(root=os.path.join(image_path, "val"),
                                             transform=data_transform["val"])
     val_num = len(validate_dataset)
     validate_loader = torch.utils.data.DataLoader(validate_dataset,
                                                   batch_size=4, shuffle=False,
-                                                  num_workers=nw)
+                                                  num_workers=0)
 
     print("using {} images for training, {} images for validation.".format(train_num,
                                                                            val_num))

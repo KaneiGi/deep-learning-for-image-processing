@@ -1,5 +1,6 @@
 import os
 import json
+import sys
 
 import torch
 import torch.nn as nn
@@ -23,8 +24,9 @@ def main():
                                    transforms.ToTensor(),
                                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])}
 
-    data_root = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # get data root path
-    image_path = os.path.join(data_root, "data_set", "flower_data")  # flower data set path
+    # data_root = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # get data root path
+    # image_path = os.path.join(data_root, "data_set", "flower_data")  # flower data set path
+    image_path = "C:/Users/wei43/Downloads/deep_learning_data/flower_data"
     assert os.path.exists(image_path), "{} path does not exist.".format(image_path)
     train_dataset = datasets.ImageFolder(root=os.path.join(image_path, "train"),
                                          transform=data_transform["train"])
@@ -39,7 +41,7 @@ def main():
         json_file.write(json_str)
 
     batch_size = 32
-    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
+    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 0 if "win" in sys.platform else 8])  # number of workers
     print('Using {} dataloader workers every process'.format(nw))
 
     train_loader = torch.utils.data.DataLoader(train_dataset,
@@ -69,13 +71,15 @@ def main():
     # model_dict.update(pretrain_dict)
     # net.load_state_dict(model_dict)
     net = GoogLeNet(num_classes=5, aux_logits=True, init_weights=True)
+    # model_weight_path = 'C:/Users/wei43/Downloads/deep_learning_data/googleNet.pth'
+    # net.load_state_dict(torch.load(model_weight_path,map_location=device))
     net.to(device)
     loss_function = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(net.parameters(), lr=0.0003)
+    optimizer = optim.Adam(net.parameters(), lr=0.00001)
 
-    epochs = 30
+    epochs = 1
     best_acc = 0.0
-    save_path = './googleNet.pth'
+    save_path = 'C:/Users/wei43/Downloads/deep_learning_data/googleNet-test.pth'
     train_steps = len(train_loader)
     for epoch in range(epochs):
         # train

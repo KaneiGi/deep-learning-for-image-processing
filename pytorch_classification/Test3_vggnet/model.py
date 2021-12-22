@@ -75,3 +75,10 @@ def vgg(model_name="vgg16", **kwargs):
 
     model = VGG(make_features(cfg), **kwargs)
     return model
+
+if __name__=="__main__":
+    # for num,layer in enumerate(cfgs["vgg11"]):
+    #     print(num,layer)
+    model = vgg()
+    for layer in model.modules():
+        print(layer)

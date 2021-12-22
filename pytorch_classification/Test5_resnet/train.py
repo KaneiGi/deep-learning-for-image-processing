@@ -1,5 +1,6 @@
 import os
 import json
+import sys
 
 import torch
 import torch.nn as nn
@@ -24,9 +25,10 @@ def main():
                                    transforms.ToTensor(),
                                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])}
 
-    data_root = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # get data root path
-    image_path = os.path.join(data_root, "data_set", "flower_data")  # flower data set path
-    assert os.path.exists(image_path), "{} path does not exist.".format(image_path)
+    # data_root = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # get data root path
+    # image_path = os.path.join(data_root, "data_set", "flower_data")  # flower data set path
+    image_path = "C:/Users/wei43/Downloads/deep_learning_data/flower_data"
+    # assert os.path.exists(image_path), "{} path does not exist.".format(image_path)
     train_dataset = datasets.ImageFolder(root=os.path.join(image_path, "train"),
                                          transform=data_transform["train"])
     train_num = len(train_dataset)
@@ -40,7 +42,7 @@ def main():
         json_file.write(json_str)
 
     batch_size = 16
-    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
+    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 0 if "win" in sys.platform else 8])  # number of workers
     print('Using {} dataloader workers every process'.format(nw))
 
     train_loader = torch.utils.data.DataLoader(train_dataset,
@@ -60,7 +62,7 @@ def main():
     net = resnet34()
     # load pretrain weights
     # download url: https://download.pytorch.org/models/resnet34-333f7ec4.pth
-    model_weight_path = "./resnet34-pre.pth"
+    model_weight_path = "C:/Users/wei43/Downloads/deep_learning_data/resnet34-pre.pth"
     assert os.path.exists(model_weight_path), "file {} does not exist.".format(model_weight_path)
     net.load_state_dict(torch.load(model_weight_path, map_location=device))
     # for param in net.parameters():
@@ -78,9 +80,9 @@ def main():
     params = [p for p in net.parameters() if p.requires_grad]
     optimizer = optim.Adam(params, lr=0.0001)
 
-    epochs = 3
+    epochs = 10
     best_acc = 0.0
-    save_path = './resNet34.pth'
+    save_path = 'C:/Users/wei43/Downloads/deep_learning_data/resNet34.pth'
     train_steps = len(train_loader)
     for epoch in range(epochs):
         # train

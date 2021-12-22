@@ -34,3 +34,18 @@ class RandomHorizontalFlip(object):
             bbox[:, [0, 2]] = width - bbox[:, [2, 0]]  # 翻转对应bbox坐标信息
             target["boxes"] = bbox
         return image, target
+
+class RandomImageProcess(object):
+    def __init__(self,prob=0.5):
+        self.prob = prob
+
+    def __call__(self,image,target):
+        if random.random() < self.prob:
+            height, width = image.shape[-2:]
+            image = image.flip(-1)  # 水平翻转图片
+            bbox = target["boxes"]
+            # bbox: xmin, ymin, xmax, ymax
+            bbox[:, [0, 2]] = width - bbox[:, [2, 0]]  # 翻转对应bbox坐标信息
+            target["boxes"] = bbox
+
+

@@ -2,6 +2,10 @@
 本脚本有两个功能：
 1.将voc数据集标注信息(.xml)转为yolo标注格式(.txt)，并将图像文件复制到相应文件夹
 2.根据json标签文件，生成对应names标签(my_data_label.names)
+
+从结果上面说就是建立了两个文件夹，里面有子文件夹images,lables，里面分别存储了图片和yolo格式的annotation，类似voc的Annotation和JPEGImages的集合
+还有一个格式为names的文件，里面记录了类别信息，类似json文件
+所以yolo数据集的区别应该是提前都数据集的训练集和验证集进行了归类
 """
 import os
 from tqdm import tqdm
@@ -9,9 +13,20 @@ from lxml import etree
 import json
 import shutil
 
-
 # voc数据集根目录以及版本
-voc_root = "/data/VOCdevkit"
+# voc_root = "/data/VOCdevkit"
+# voc_version = "VOC2012"
+#
+# # 转换的训练集以及验证集对应txt文件
+# train_txt = "train.txt"
+# val_txt = "val.txt"
+#
+# # 转换后的文件保存目录
+# save_file_root = "./my_yolo_dataset"
+#
+# # label标签对应json文件
+# label_json_path = './data/pascal_voc_classes.json'
+voc_root = "C:\Users\wei43\OneDrive\data_set"
 voc_version = "VOC2012"
 
 # 转换的训练集以及验证集对应txt文件
@@ -135,7 +150,7 @@ def translate_info(file_names: list, save_root: str, class_dict: dict, train_val
                     f.write("\n" + " ".join(info))
 
         # copy image into save_images_path
-        shutil.copyfile(img_path, os.path.join(save_images_path, img_path.split(os.sep)[-1]))
+        shutil.copyfile(img_path, os.path.join(save_images_path, img_path.split(os.sep)[-1]))# os.sep在win上面是\,在Linux上面是/
 
 
 def create_class_names(class_dict: dict):
@@ -159,9 +174,15 @@ def main():
     # voc信息转yolo，并将图像文件复制到相应文件夹
     translate_info(train_file_names, save_file_root, class_dict, "train")
 
+    # strip()
+    # 方法用于移除字符串头尾指定的字符（默认为空格或换行符）或字符序列。
+    #
+    # 注意：该方法只能删除开头或是结尾的字符，不能删除中间部分的字符。
+
     # 读取val.txt中的所有行信息，删除空行
     with open(val_txt_path, "r") as r:
         val_file_names = [i for i in r.read().splitlines() if len(i.strip()) > 0]
+    # f.readlines()和f.read().splitlines()都是返回一个list，f.readlines()后面有加\n, f.read().splitlines()没有\n
     # voc信息转yolo，并将图像文件复制到相应文件夹
     translate_info(val_file_names, save_file_root, class_dict, "val")
 

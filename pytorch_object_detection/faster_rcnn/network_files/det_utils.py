@@ -52,10 +52,10 @@ class BalancedPositiveNegativeSampler(object):
             # protect against not enough positive examples
             # 如果正样本数量不够就直接采用所有正样本
             num_pos = min(positive.numel(), num_pos)
-            # 指定负样本数量
+            # 指定负样本数量，用指定的batch_size数量直接减去实际的正样本数量，一般来说正样本很少，所以负样本数量一般会比预想的数量要多
             num_neg = self.batch_size_per_image - num_pos
             # protect against not enough negative examples
-            # 如果负样本数量不够就直接采用所有负样本
+            # 如果负样本数量太多就直接采用设定总batch_size 减去 仅有的负样本，结果总的数量一般等于或着少于设定的batch_size，但是由于负样本一般很多，所以结果等于batch_size
             num_neg = min(negative.numel(), num_neg)
 
             # randomly select positive and negative examples
@@ -66,7 +66,7 @@ class BalancedPositiveNegativeSampler(object):
 
             pos_idx_per_image = positive[perm1]
             neg_idx_per_image = negative[perm2]
-
+            #先确定正负样本数，然后随机抽取
             # create binary mask from indices
             pos_idx_per_image_mask = torch.zeros_like(
                 matched_idxs_per_image, dtype=torch.uint8
@@ -205,7 +205,7 @@ class BoxCoder(object):
         assert isinstance(rel_codes, torch.Tensor)
         boxes_per_image = [b.size(0) for b in boxes]
         concat_boxes = torch.cat(boxes, dim=0)
-
+        #把batch和每张图片的bndbox数量融合成一个维度，这样就和预测回归的参数t的pred_bbox_deltas是同样的形状
         box_sum = 0
         for val in boxes_per_image:
             box_sum += val
@@ -239,7 +239,7 @@ class BoxCoder(object):
         ctr_y = boxes[:, 1] + 0.5 * heights  # anchor/proposal中心y坐标
 
         wx, wy, ww, wh = self.weights  # RPN中为[1,1,1,1], fastrcnn中为[10,10,5,5]
-        dx = rel_codes[:, 0::4] / wx   # 预测anchors/proposals的中心坐标x回归参数
+        dx = rel_codes[:, 0::4] / wx   # 预测anchors/proposals的中心坐标x回归参数,切片多一个步距可以让tensor的形状保持原样
         dy = rel_codes[:, 1::4] / wy   # 预测anchors/proposals的中心坐标y回归参数
         dw = rel_codes[:, 2::4] / ww   # 预测anchors/proposals的宽度回归参数
         dh = rel_codes[:, 3::4] / wh   # 预测anchors/proposals的高度回归参数
@@ -327,7 +327,7 @@ class Matcher(object):
         # M x N 的每一列代表一个anchors与所有gt的匹配iou值
         # matched_vals代表每列的最大值，即每个anchors与所有gt匹配的最大iou值
         # matches对应最大值所在的索引
-        matched_vals, matches = match_quality_matrix.max(dim=0)  # the dimension to reduce.
+        matched_vals, matches = match_quality_matrix.max(dim=0)  # the dimension to reduce.在竖直的列的维度比较
         if self.allow_low_quality_matches:
             all_matches = matches.clone()
         else:

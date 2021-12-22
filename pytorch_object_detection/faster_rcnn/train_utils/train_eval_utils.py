@@ -30,7 +30,25 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch,
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
         # 混合精度训练上下文管理器，如果在CPU环境中不起任何作用
-        with torch.cuda.amp.autocast(enabled=enable_amp):
+        if enable_amp :
+            with torch.cuda.amp.autocast(enabled=enable_amp):
+                loss_dict = model(images, targets)
+
+                losses = sum(loss for loss in loss_dict.values())
+
+                # reduce losses over all GPUs for logging purpose
+                loss_dict_reduced = utils.reduce_dict(loss_dict)
+                losses_reduced = sum(loss for loss in loss_dict_reduced.values())
+
+                loss_value = losses_reduced.item()
+                # 记录训练损失
+                mloss = (mloss * i + loss_value) / (i + 1)  # update mean losses
+
+                if not math.isfinite(loss_value):  # 当计算的损失为无穷大时停止训练
+                    print("Loss is {}, stopping training".format(loss_value))
+                    print(loss_dict_reduced)
+                    sys.exit(1)
+        else:
             loss_dict = model(images, targets)
 
             losses = sum(loss for loss in loss_dict.values())

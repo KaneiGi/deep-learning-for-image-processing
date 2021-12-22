@@ -1,8 +1,8 @@
 """
 该脚本有3个功能：
 1.统计训练集和验证集的数据并生成相应.txt文件
-2.创建data.data文件，记录classes个数, train以及val数据集文件(.txt)路径和label.names文件路径
-3.根据yolov3-spp.cfg创建my_yolov3.cfg文件修改其中的predictor filters以及yolo classes参数(这两个参数是根据类别数改变的)
+2.创建data.data文件，记录classes个数, train以及val数据集文件(.txt)路径和label.names文件路径，在data文件夹里面保存，类似voc格式里面的ImageSets
+3.根据yolov3-spp.cfg创建my_yolov3.cfg文件修改其中的predictor filters以及yolo classes参数(这两个参数是根据类别数改变的)，在cfg文件里面保存,yolo特有的
 """
 import os
 
@@ -24,7 +24,7 @@ def calculate_data_txt(txt_path, dataset_dir):
             if file_name == "classes.txt":
                 continue
 
-            img_path = os.path.join(dataset_dir.replace("labels", "images"),
+            img_path = os.path.join(dataset_dir.replace("labels", "images"), #把labels替换成images
                                     file_name.split(".")[0]) + ".jpg"
             line = img_path + "\n"
             assert os.path.exists(img_path), "file:{} not exist!".format(img_path)

@@ -170,3 +170,7 @@ class BasicConv2d(nn.Module):
         x = self.conv(x)
         x = self.relu(x)
         return x
+
+if __name__ == '__main__':
+    model = GoogLeNet()
+    print(model.state_dict()["inception3a.branch3.1.conv.weight"].size())

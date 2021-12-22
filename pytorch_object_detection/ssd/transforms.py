@@ -26,14 +26,14 @@ class ToTensor(object):
 
 
 class RandomHorizontalFlip(object):
-    """随机水平翻转图像以及bboxes,该方法应放在ToTensor后"""
+    """随机水平翻转图像以及bboxes,该方法应放在ToTensor后，是否在ToTensor前后取决与np和torch，不同方法的特性"""
     def __init__(self, prob=0.5):
         self.prob = prob
 
     def __call__(self, image, target):
         if random.random() < self.prob:
             # height, width = image.shape[-2:]
-            image = image.flip(-1)  # 水平翻转图片
+            image = image.flip(-1)  # 水平翻转图片,这里是torch.flip,会复制一份原来的tensor，相当于深拷贝，而np.flip只是返回视图，如果原来的array发生改变，np.flip的值也会发生改变
             bbox = target["boxes"]
             # bbox: xmin, ymin, xmax, ymax
             # bbox[:, [0, 2]] = width - bbox[:, [2, 0]]  # 翻转对应bbox坐标信息
@@ -137,7 +137,7 @@ class SSDCropping(object):
                 bottom_idx = int(bottom * htot)
                 image = image.crop((left_idx, top_idx, right_idx, bottom_idx))
 
-                # 调整裁剪后的bboxes坐标信息
+                # 调整裁剪后的bboxes坐标信息，改变gtbox的坐标基准,因为一直都是相对坐标
                 bboxes[:, 0] = (bboxes[:, 0] - left) / w
                 bboxes[:, 1] = (bboxes[:, 1] - top) / h
                 bboxes[:, 2] = (bboxes[:, 2] - left) / w

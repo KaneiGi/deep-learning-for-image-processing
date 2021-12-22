@@ -1,5 +1,6 @@
 import os
 import json
+import sys
 
 import torch
 import torch.nn as nn
@@ -7,13 +8,9 @@ import torchvision
 from torchvision import transforms, datasets
 import torch.optim as optim
 from tqdm import tqdm
+import scipy
 
-from model import vgg
-# import gc
-#
-# gc.collect()
-#
-# torch.cuda.empty_cache()
+from model import GoogLeNet
 
 
 def main():
@@ -21,18 +18,18 @@ def main():
     print("using {} device.".format(device))
 
     data_transform = {
-        "train": transforms.Compose([transforms.RandomResizedCrop(224),
-                                     transforms.RandomHorizontalFlip(),
+        "train": transforms.Compose([transforms.Resize(256),
+                                     transforms.CenterCrop(224),
                                      transforms.ToTensor(),
-                                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]),
+                                     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]),
         "val": transforms.Compose([transforms.Resize((224, 224)),
                                    transforms.ToTensor(),
-                                   transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])}
+                                   transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])}
 
-    data_root = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # get data root path
-    image_path = os.path.join(data_root, "data_set", "flower_data")  # flower data set path
+    # data_root = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # get data root path
+    # image_path = os.path.join(data_root, "data_set", "flower_data")  # flower data set path
+    # assert os.path.exists(image_path), "{} path does not exist.".format(image_path)
     image_path = "C:/Users/wei43/Downloads/deep_learning_data/flower_data"
-    assert os.path.exists(image_path), "{} path does not exist.".format(image_path)
     train_dataset = datasets.ImageFolder(root=os.path.join(image_path, "train"),
                                          transform=data_transform["train"])
     train_num = len(train_dataset)
@@ -45,36 +42,47 @@ def main():
     with open('class_indices.json', 'w') as json_file:
         json_file.write(json_str)
 
-    batch_size = 20
-    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
+    batch_size = 32
+    nw = min(
+        [os.cpu_count(), batch_size if batch_size > 1 else 0, 0 if "win" in sys.platform else 8])  # number of workers
     print('Using {} dataloader workers every process'.format(nw))
 
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size, shuffle=True,
-                                               num_workers=0)
+                                               num_workers=nw)
 
     validate_dataset = datasets.ImageFolder(root=os.path.join(image_path, "val"),
                                             transform=data_transform["val"])
     val_num = len(validate_dataset)
     validate_loader = torch.utils.data.DataLoader(validate_dataset,
                                                   batch_size=batch_size, shuffle=False,
-                                                  num_workers=0)
+                                                  num_workers=nw)
+
     print("using {} images for training, {} images for validation.".format(train_num,
                                                                            val_num))
 
     # test_data_iter = iter(validate_loader)
     # test_image, test_label = test_data_iter.next()
 
-    # model_name = "vgg16"
-    # net = vgg(model_name=model_name, num_classes=5, init_weights=True)
-    net = torchvision.models.vgg16(pretrained=True)
-    net.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096),
-                                     nn.ReLU(inplace=True),
-                                     nn.Dropout(0.5),
-                                     nn.Linear(4096, 4096),
-                                     nn.ReLU(inplace=True),
-                                     nn.Dropout(0.5),
-                                     nn.Linear(4096, 5))
+    # option1:
+    # net = torchvision.models.googlenet(num_classes=5,init_weights=True,aux_logits=True)
+    # model_dict = net.state_dict()
+    # pretrain_model = torch.load("C:/Users/wei43/Downloads/deep_learning_data/googleNet-pre.pth")
+    # del_list = ["aux1.fc2.weight", "aux1.fc2.bias",
+    #             "aux2.fc2.weight", "aux2.fc2.bias",
+    #             "fc.weight", "fc.bias"]
+    # # print(pretrain_model["inception3a.branch3.1.conv.weight"].size())
+    # pretrain_dict = {k: v for k, v in pretrain_model.items() if k not in del_list}
+    # model_dict.update(pretrain_dict)
+    # net.load_state_dict(model_dict)
+    # or
+    # net.load_state_dict(pretrain_dict,strict=False)
+
+    # option2
+
+    net = torchvision.models.googlenet(pretrained=True,aux_logits=True)
+    net.classifier = nn.Linear(2048,5)
+
 
     net.to(device)
     loss_function = nn.CrossEntropyLoss()
@@ -82,7 +90,7 @@ def main():
 
     epochs = 10
     best_acc = 0.0
-    save_path = 'C:/Users/wei43/Downloads/deep_learning_data/vgg16.pth'
+    save_path = 'C:/Users/wei43/Downloads/deep_learning_data/googleNet.pth'
     train_steps = len(train_loader)
     for epoch in range(epochs):
         # train
@@ -92,8 +100,11 @@ def main():
         for step, data in enumerate(train_bar):
             images, labels = data
             optimizer.zero_grad()
-            outputs = net(images.to(device))
-            loss = loss_function(outputs, labels.to(device))
+            logits, aux_logits2, aux_logits1 = net(images.to(device))
+            loss0 = loss_function(logits, labels.to(device))
+            loss1 = loss_function(aux_logits1, labels.to(device))
+            loss2 = loss_function(aux_logits2, labels.to(device))
+            loss = loss0 + loss1 * 0.3 + loss2 * 0.3
             loss.backward()
             optimizer.step()
 
@@ -111,7 +122,7 @@ def main():
             val_bar = tqdm(validate_loader)
             for val_data in val_bar:
                 val_images, val_labels = val_data
-                outputs = net(val_images.to(device))
+                outputs = net(val_images.to(device))  # eval model only have last output layer
                 predict_y = torch.max(outputs, dim=1)[1]
                 acc += torch.eq(predict_y, val_labels.to(device)).sum().item()
 

@@ -6,6 +6,8 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
 
+import sys
+
 from models import *
 from build_utils.datasets import *
 from build_utils.utils import *
@@ -33,6 +35,12 @@ def train(hyp):
 
     # Image sizes
     # 图像要设置成32的倍数
+    # 需要引用math模块，该函数用于对浮点数求模，即求x除以y后的余数，结果为浮点型；
+    # math.fmod函数与“ % ”求模运算符（如：x % y）的区别如下：
+    # 前者始终返回浮点数；后者在x、y均为整型时，返回整型，其他情况下，即x、y任有一浮点型时，结果均返回浮点型。
+    # 前者返回结果的符号（正负）始终与x相同；后者所得结果的符号（正负）始终与y相同。
+    # 前者返回结果的绝对值始终等于“ | x | % | y |”；对于后者，若x与y符号（正负）相同，结果的绝对值为“ | x | % | y |”，若x与y的符号（正负）不同，结果的绝对值为“ | y | - (| x | % | y |)”。
+
     gs = 32  # (pixels) grid size
     assert math.fmod(imgsz_test, gs) == 0, "--img-size %g must be a %g-multiple" % (imgsz_test, gs)
     grid_min, grid_max = imgsz_test // gs, imgsz_test // gs
@@ -59,8 +67,12 @@ def train(hyp):
     for f in glob.glob(results_file):
         os.remove(f)
 
+    # 方法用于删除指定路径的文件。如果指定的路径是一个目录，将抛出OSError。
+    # glob是python自己带的一个文件操作相关模块，用它可以查找符合自己目的的文件，类似于Windows下的文件搜索，支持通配符操作，
+    # *,?,[]这三个通配符，*代表0个或多个字符，?代表一个字符，[]匹配指定范围内的字符
+
     # Initialize model
-    model = Darknet(cfg).to(device)
+    model = Darknet(cfg, verbose=True).to(device)
 
     # 是否冻结权重，只训练predictor的权重
     if opt.freeze_layers:
@@ -98,12 +110,17 @@ def train(hyp):
 
         # load model
         try:
-            ckpt["model"] = {k: v for k, v in ckpt["model"].items() if model.state_dict()[k].numel() == v.numel()}
+            ckpt["model"] = {k: v for k, v in ckpt["model"].items() if
+                             model.state_dict()[k].numel() == v.numel()}  # 加载的model的元素的参数个数必须和darknet，即现在的model一致
             model.load_state_dict(ckpt["model"], strict=False)
         except KeyError as e:
+            # \ 代码换行，但是后面不能有空格或着其他符号
             s = "%s is not compatible with %s. Specify --weights '' or specify a --cfg compatible with %s. " \
                 "See https://github.com/ultralytics/yolov3/issues/657" % (opt.weights, opt.cfg, opt.weights)
             raise KeyError(s) from e
+        # 单单raise 会认为捕捉到的异常和抛出的异常没有直接联系
+        # raise from 则会认为有联系
+        # raise from none 则会只显示抛出的异常
 
         # load optimizer
         if ckpt["optimizer"] is not None:
@@ -117,6 +134,7 @@ def train(hyp):
                 file.write(ckpt["training_results"])  # write results.txt
 
         # epochs
+        # range(start_epoch, epochs)
         start_epoch = ckpt["epoch"] + 1
         if epochs < start_epoch:
             print('%s has been trained for %g epochs. Fine-tuning for %g additional epochs.' %
@@ -160,7 +178,9 @@ def train(hyp):
                                       single_cls=opt.single_cls)
 
     # dataloader
-    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
+    nw = min(
+        [os.cpu_count(), batch_size if batch_size > 1 else 0, 0 if sys.platform == 'win32' else 8])  # number of workers
+    # nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 0 if sys.platform == 'win32' else 8])
     train_dataloader = torch.utils.data.DataLoader(train_dataset,
                                                    batch_size=batch_size,
                                                    num_workers=nw,
@@ -192,7 +212,7 @@ def train(hyp):
     for epoch in range(start_epoch, epochs):
         mloss, lr = train_util.train_one_epoch(model, optimizer, train_dataloader,
                                                device, epoch,
-                                               accumulate=accumulate,  # 迭代多少batch才训练完64张图片
+                                               accumulate=accumulate,  # 迭代多少batch才训练完64张图片，对应的是batchd的数量
                                                img_size=imgsz_train,  # 输入图像的大小
                                                multi_scale=multi_scale,
                                                grid_min=grid_min,  # grid的最小尺寸
@@ -205,6 +225,7 @@ def train(hyp):
 
         if opt.notest is False or epoch == epochs - 1:
             # evaluate on the test dataset
+            # 在最后一个eopch打印信息或着设置每一个epoch训练完打印信息
             result_info = train_util.evaluate(model, val_datasetloader,
                                               coco=coco, device=device)
 
@@ -258,15 +279,28 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', type=int, default=30)
     parser.add_argument('--batch-size', type=int, default=4)
-    parser.add_argument('--cfg', type=str, default='cfg/my_yolov3.cfg', help="*.cfg path")
-    parser.add_argument('--data', type=str, default='data/my_data.data', help='*.data path')
+    import platform
+
+    if platform.system() == "Darwin":
+        parser.add_argument('--cfg', type=str, default=r"/Users/gi/OneDrive/yolo_data_set/cfg/my_yolov3.cfg",
+                            help="*.cfg path")
+        parser.add_argument('--data', type=str, default=r"/Users/gi/OneDrive/yolo_data_set/data/my_data_mac.data",
+                            help='*.data path')
+    else:
+
+        parser.add_argument('--cfg', type=str, default=r"C:\Users\wei43\OneDrive\yolo_data_set\cfg\my_yolov3.cfg",
+                            help="*.cfg path")
+        parser.add_argument('--data', type=str, default=r"C:\Users\wei43\OneDrive\yolo_data_set\data\my_data.data",
+                            help='*.data path')
+
     parser.add_argument('--hyp', type=str, default='cfg/hyp.yaml', help='hyperparameters path')
     parser.add_argument('--multi-scale', type=bool, default=True,
                         help='adjust (67%% - 150%%) img_size every 10 batches')
     parser.add_argument('--img-size', type=int, default=512, help='test size')
     parser.add_argument('--rect', action='store_true', help='rectangular training')
     parser.add_argument('--savebest', type=bool, default=False, help='only save best checkpoint')
-    parser.add_argument('--notest', action='store_true', help='only test final epoch')
+    parser.add_argument('--notest', action='store_true',
+                        help='only test final epoch')  # 如果在调用的时候有涉及到这个参数，那么这个参数就被设置成true:store_true
     parser.add_argument('--cache-images', action='store_true', help='cache images for faster training')
     parser.add_argument('--weights', type=str, default='weights/yolov3-spp-ultralytics-512.pt',
                         help='initial weights path')

@@ -135,7 +135,7 @@ class RoIHeads(torch.nn.Module):
                 matched_idxs_in_image = self.proposal_matcher(match_quality_matrix)
 
                 # 限制最小值，防止匹配标签时出现越界的情况
-                # 注意-1, -2对应的gt索引会调整到0,获取的标签类别为第0个gt的类别（实际上并不是）,后续会进一步处理
+                # 注意-1, -2对应的gt索引会调整到0,获取的标签类别为第0个gt的类别（实际上并不是）,为了防止切片越界，后续会进一步处理
                 clamped_matched_idxs_in_image = matched_idxs_in_image.clamp(min=0)
                 # 获取proposal匹配到的gt对应标签
                 labels_in_image = gt_labels_in_image[clamped_matched_idxs_in_image]
@@ -151,16 +151,16 @@ class RoIHeads(torch.nn.Module):
                 ignore_inds = matched_idxs_in_image == self.proposal_matcher.BETWEEN_THRESHOLDS  # -2
                 labels_in_image[ignore_inds] = -1  # -1 is ignored by sampler
 
-            matched_idxs.append(clamped_matched_idxs_in_image)
-            labels.append(labels_in_image)
+            matched_idxs.append(clamped_matched_idxs_in_image)#每张图片里面每个proposals所对应的gt的索引，做了限制下限处理，最小值是0，所以0不一定是真实值，这里更重要的是作为box坐标值的索引
+            labels.append(labels_in_image)#每张图片的每个proposal所对应的gt的真实分类值
         return matched_idxs, labels
 
     def subsample(self, labels):
         # type: (List[Tensor]) -> List[Tensor]
-        # BalancedPositiveNegativeSampler
+        # BalancedPositiveNegativeSampler，返回的sampled_pos_inds, sampled_neg_inds和labels形状一下，元素值为1的地方代表是正（负）样本，其余为0，正负样本总数是512（超参数）
         sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
         sampled_inds = []
-        # 遍历每张图片的正负样本索引
+        # 遍历每张图片的正负样本索引，形状还是和labels一样，但是是正负样本的索引的集合
         for img_idx, (pos_inds_img, neg_inds_img) in enumerate(zip(sampled_pos_inds, sampled_neg_inds)):
             # 记录所有采集样本索引（包括正样本和负样本）
             # img_sampled_inds = torch.nonzero(pos_inds_img | neg_inds_img).squeeze(1)
@@ -224,7 +224,7 @@ class RoIHeads(torch.nn.Module):
         proposals = self.add_gt_proposals(proposals, gt_boxes)
 
         # get matching gt indices for each proposal
-        # 为每个proposal匹配对应的gt_box，并划分到正负样本中
+        # 为每个proposal匹配对应的gt_box，并划分到正负样本中，matched_idxs里面做了下限限制处理，所以标为0的不一定是真实值，其原先值可能是-1（负样本） -2（介于正样本和负样本之间的废弃样本）
         matched_idxs, labels = self.assign_targets_to_proposals(proposals, gt_boxes, gt_labels)
         # sample a fixed proportion of positive-negative proposals
         # 按给定数量和比例采样正负样本
@@ -240,7 +240,7 @@ class RoIHeads(torch.nn.Module):
             proposals[img_id] = proposals[img_id][img_sampled_inds]
             # 获取对应正负样本的真实类别信息
             labels[img_id] = labels[img_id][img_sampled_inds]
-            # 获取对应正负样本的gt索引信息
+            # 获取对应正负样本的gt索引信息，虽然0对应的gt信息不一定对，但是计算损失的时候是根据labels里面的类别值计算的
             matched_idxs[img_id] = matched_idxs[img_id][img_sampled_inds]
 
             gt_boxes_in_image = gt_boxes[img_id]
@@ -376,7 +376,7 @@ class RoIHeads(torch.nn.Module):
             regression_targets = None
 
         # 将采集样本通过Multi-scale RoIAlign pooling层
-        # box_features_shape: [num_proposals, channel, height, width]
+        # box_features_shape: [num_proposals, channel, height, width]，num_proposals = batch_size* proposal_num_every_image
         box_features = self.box_roi_pool(features, proposals, image_shapes)
 
         # 通过roi_pooling后的两层全连接层

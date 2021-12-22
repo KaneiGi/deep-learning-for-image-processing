@@ -16,9 +16,9 @@ from build_utils.utils import xyxy2xywh, xywh2xyxy
 help_url = 'https://github.com/ultralytics/yolov3/wiki/Train-Custom-Data'
 img_formats = ['.bmp', '.jpg', '.jpeg', '.png', '.tif', '.dng']
 
-
 # get orientation in exif tag
 # 找到图像exif信息中对应旋转信息的key值
+# TAGS实际上是一个事先定义好的字典,这样就可以取到Orientation所对应的键值
 for orientation in ExifTags.TAGS.keys():
     if ExifTags.TAGS[orientation] == "Orientation":
         break
@@ -48,7 +48,7 @@ def exif_size(img):
 
 class LoadImagesAndLabels(Dataset):  # for training/testing
     def __init__(self,
-                 path,   # 指向data/my_train_data.txt路径或data/my_val_data.txt路径
+                 path,  # 指向data/my_train_data.txt路径或data/my_val_data.txt路径
                  # 这里设置的是预处理后输出的图片尺寸
                  # 当为训练集时，设置的是训练过程中(开启多尺度)的最大尺寸
                  # 当为验证集时，设置的是最终使用的网络大小
@@ -58,7 +58,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                  hyp=None,  # 超参数字典，其中包含图像增强会使用到的超参数
                  rect=False,  # 是否使用rectangular training
                  cache_images=False,  # 是否缓存图片到内存中
-                 single_cls=False, pad=0.0, rank=-1):
+                 single_cls=False, pad=0.0, rank=-1): # 如果rank为-1或着0，才会打印进度信息
 
         try:
             path = str(Path(path))
@@ -67,6 +67,9 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 # 读取对应my_train/val_data.txt文件，读取每一行的图片路劲信息
                 with open(path, "r") as f:
                     f = f.read().splitlines()
+                # with open(path, "r") as f1:
+                #     f1 = f1.read().split()
+                # assert f == f1
             else:
                 raise Exception("%s does not exist" % path)
 
@@ -81,8 +84,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         assert n > 0, "No images found in %s. See %s" % (path, help_url)
 
         # batch index
-        # 将数据划分到一个个batch中
-        bi = np.floor(np.arange(n) / batch_size).astype(np.int)
+        # 将数据划分到一个个batch中,让数据呈现阶梯状
+        bi = np.floor(np.arange(n) / batch_size).astype(np.int)# floor（地板）意思为向下取整，ceil（天花板）意思为向上取整
         # 记录数据集划分后的总batch数
         nb = bi[-1] + 1  # number of batches
 
@@ -94,6 +97,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.rect = rect  # 是否使用rectangular training
         # 注意: 开启rect后，mosaic就默认关闭
         self.mosaic = self.augment and not self.rect  # load 4 images at a time into a mosaic (only during training)
+        # 因为mosaic会拼接四张图像为一张固定大小的图像，所以开启rect（把长或者宽缩放到指定尺寸）就没有太多意义，但是开了应该也行
 
         # Define labels
         # 遍历设置图像对应的label路径
@@ -120,9 +124,13 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 image_files = self.img_files
             s = [exif_size(Image.open(f)) for f in image_files]
             # 将所有图片的shape信息保存在.shape文件中
+
+            # 第一个参数可以指定保存的路径以及文件名，注意指定的文件路径必须存在，它不会为你新建新的文件，会报错。fmt = "%.18f,%.18f"
+            # 指定保存的文件格式，delimiter = "\n" 表示分隔符
+
             np.savetxt(sp, s, fmt="%g")  # overwrite existing (if any)
 
-        # 记录每张图像的原始尺寸
+        # 记录每张图像的原始尺寸,array 函数可以接收字符型的列表或着元组
         self.shapes = np.array(s, dtype=np.float64)
 
         # Rectangular Training https://github.com/ultralytics/yolov3/issues/232
@@ -136,24 +144,33 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             # argsort函数返回的是数组值从小到大的索引值
             # 按照高宽比例进行排序，这样后面划分的每个batch中的图像就拥有类似的高宽比
             irect = ar.argsort()
+            # 按升序排列,返回的是原来数组中的引索值，ar[irect]就可以等到升序排列的数组
             # 根据排序后的顺序重新设置图像顺序、标签顺序以及shape顺序
+            # numpy类型的数据可以直接运算，但是list不可以，智能用于增删，或者改变元素
+            # list 也不支持像numpy那样的同时索引多个值[index_a,index_b,...]，单次只能索引一个
             self.img_files = [self.img_files[i] for i in irect]
+            # irect = irect.tolist()
+            # self.img_files_try = self.img_files[irect]
+            # assert self.img_files_try == self.img_files
             self.label_files = [self.label_files[i] for i in irect]
             self.shapes = s[irect]  # wh
             ar = ar[irect]
 
             # set training image shapes
-            # 计算每个batch采用的统一尺度
+            # 计算每个batch采用的统一尺度，shapes有三种可能，[1,1],[x,1],[1,x]
             shapes = [[1, 1]] * nb  # nb: number of batches
             for i in range(nb):
-                ari = ar[bi == i]  # bi: batch index
+                # bi 记录了每张图片所对应的batch是哪一个
+                ari = ar[bi == i]  # bi: batch index,相当于一个蒙版,每次能取到一个batch_size大小的列表,这种表达式可以直接找到array中有这个值的蒙版，以true或着false的形式
                 # 获取第i个batch中，最小和最大高宽比
+                # 而且ar里面是按照高宽比的值升序排列的
                 mini, maxi = ari.min(), ari.max()
 
-                # 如果高/宽小于1(w > h)，将w设为img_size
+                # 如果高/宽小于1(w > h)，说明都是矮胖的长方形，将w设为img_size,因为img_size基本上是最大的图像尺寸（在训练的时候）
+                # 所以当高度都比宽度小的时候，可以设置宽度为img_size，这样就能保证高度都是小于img_size的
                 if maxi < 1:
                     shapes[i] = [maxi, 1]
-                # 如果高/宽大于1(w < h)，将h设置为img_size
+                # 如果高/宽大于1(w < h)，都是高瘦的长方形，将h设置为img_size
                 elif mini > 1:
                     shapes[i] = [1, 1 / mini]
             # 计算每个batch输入网络的shape值(向上设置为32的整数倍)
@@ -161,7 +178,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         # cache labels
         self.imgs = [None] * n  # n为图像总数
-        # label: [class, x, y, w, h] 其中的xywh都为相对值
+        # label: [class, x, y, w, h] 其中的xywh都为相对值,zeros((0, 5)只有表头的一列，没有行数
         self.labels = [np.zeros((0, 5), dtype=np.float32)] * n
         extract_bounding_boxes, labels_loaded = False, False
         nm, nf, ne, nd = 0, 0, 0, 0  # number mission, found, empty, duplicate
@@ -188,7 +205,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         # 遍历载入标签文件
         for i, file in enumerate(pbar):
             if labels_loaded is True:
-                # 如果存在缓存直接从缓存读取
+                # 如果存在缓存直接从缓存读取，意思是事先读取标签文件，储存在npy文件里面，然后再读取npy文件到内存中,就不需要读取label_files里面的文件
                 l = self.labels[i]
             else:
                 # 从文件读取标签信息
@@ -214,32 +231,34 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 if single_cls:
                     l[:, 0] = 0  # force dataset into single-class mode
 
-                self.labels[i] = l
+                self.labels[i] = l #self.labels[i]的模板本来是zeros(0,5)的形式，变成[labels_number,5],对于那些没有标注的图片，或着出问题的标签，其值就会保持zeros(0,5)的形式
                 nf += 1  # file found
 
                 # Extract object detection boxes for a second stage classifier
                 if extract_bounding_boxes:
-                    p = Path(self.img_files[i])
+                    p = Path(self.img_files[i]) # C:\Users\wei43\OneDrive\yolo_data_set\train\images\6__396.png
                     img = cv2.imread(str(p))
                     h, w = img.shape[:2]
-                    for j, x in enumerate(l):
-                        f = "%s%sclassifier%s%g_%g_%s" % (p.parent.parent, os.sep, os.sep, x[0], j, p.name)
+                    for j, x in enumerate(l): # l就是指labels文件里面标注的类别信息，一行里面有五个数值
+                        f = "%s%sclassifier%s%g_%g_%s" % (p.parent.parent, os.sep, os.sep, x[0], j, p.name) #'C:\\Users\\wei43\\OneDrive\\yolo_data_set\\train\\classifier\\2_0_6__396.png'
+                        # p.name是指最下层的文件/文件夹名字
                         if not os.path.exists(Path(f).parent):
                             os.makedirs(Path(f).parent)  # make new output folder
 
                         # 将相对坐标转为绝对坐标
                         # b: x, y, w, h
-                        b = x[1:] * [w, h, w, h]  # box
+                        b = x[1:] * [w, h, w, h]  # box np.array([1,2,3])*np.array([1,2,3]) == array([1, 4, 9])
                         # 将宽和高设置为宽和高中的最大值
                         b[2:] = b[2:].max()  # rectangle to square
                         # 放大裁剪目标的宽高
                         b[2:] = b[2:] * 1.3 + 30  # pad
                         # 将坐标格式从 x,y,w,h -> xmin,ymin,xmax,ymax
-                        b = xywh2xyxy(b.reshape(-1, 4)).revel().astype(np.int)
+                        b = xywh2xyxy(b.reshape(-1, 4)).ravel().astype(np.int)
+                        # 用于将数组展平，ravel()返回的是一个数组的视图.视图是数组的引用(说引用不太恰当, 因为原数组和ravel()返回后的数组的地址并不一样)，但是改变展平前的数组也会导致展品后的数组发生变化
 
-                        # 裁剪bbox坐标到图片内
-                        b[[0, 2]] = np.clip[b[[0, 2]], 0, w]
-                        b[[1, 3]] = np.clip[b[[1, 3]], 0, h]
+                        # 裁剪bbox坐标到图片内,numpy.clip(a, a_min, a_max, out=None),将数组中的元素限制在a_min, a_max之间，大于a_max的就使得它等于 a_max，小于a_min,的就使得它等于a_min
+                        b[[0, 2]] = np.clip(b[[0, 2]], 0, w)
+                        b[[1, 3]] = np.clip(b[[1, 3]], 0, h)
                         assert cv2.imwrite(f, img[b[1]:b[3], b[0]:b[2]]), "Failure extracting classifier boxes"
             else:
                 ne += 1  # file empty
@@ -254,10 +273,10 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         # 如果标签信息没有被保存成numpy的格式，且训练样本数大于1000则将标签信息保存成numpy的格式
         if not labels_loaded and n > 1000:
             print("Saving labels to %s for faster future loading" % np_labels_path)
-            np.save(np_labels_path, self.labels)  # save for next time
+            np.save(np_labels_path, self.labels)  # save for next time,self.labels 是以np的矩阵形式保存的标签信息，[img_nums,lable_nums,5] 这三个维度
 
         # Cache images into memory for faster training (Warning: large datasets may exceed system RAM)
-        if cache_images:  # if training
+        if cache_images:  # if training，缓存的实质就是把图像都记录在self.imgs这个列表里面，不同反复读取
             gb = 0  # Gigabytes of cached images 用于记录缓存图像占用RAM大小
             if rank in [-1, 0]:
                 pbar = tqdm(range(len(self.img_files)), desc="Caching images")
@@ -266,7 +285,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
             self.img_hw0, self.img_hw = [None] * n, [None] * n
             for i in pbar:  # max 10k images
-                self.imgs[i], self.img_hw0[i], self.img_hw[i] = load_image(self, i)  # img, hw_original, hw_resized
+                self.imgs[i], self.img_hw0[i], self.img_hw[i] = load_image(self, i)  # img, hw_original, hw_resized,和之前的labels一样，首先用None填充，然后逐渐赋值
                 gb += self.imgs[i].nbytes  # 用于记录缓存图像占用RAM大小
                 if rank in [-1, 0]:
                     pbar.desc = "Caching images (%.1fGB)" % (gb / 1E9)
@@ -291,23 +310,25 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             img, labels = load_mosaic(self, index)
             shapes = None
         else:
-            # load image
-            img, (h0, w0), (h, w) = load_image(self, index)
+            # load image，让图片的较长边满足self.img_size设定的值，较短边按照比例缩放，会留下padding
+            img, (h0, w0), (h, w) = load_image(self, index) # img, hw_original, hw_resized
 
             # letterbox
-            shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
-            img, ratio, pad = letterbox(img, shape, auto=False, scale_up=self.augment)
+            shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size
+            # final letterboxed shape，batch_size [img_nums,2],是记录每一个batch里面的尺寸的，self.batch是记录哪些引索是在一个batch里面的，img_size 是计算的最大尺寸，是一个int，而不是列表，所以图像应该是正方形的
+            # 无论有没有开启rect，shape里面总有一边是等于self.img_size,而load_image 也总是会把较长的一边缩放到self.img_size,而短的一边留下pad，区别只是pad的大小，没有开启rect时，pad填充成一个正方形
+            img, ratio, pad = letterbox(img, shape, auto=False, scale_up=self.augment)#前面的load_image函数已经将图片缩放到指定的self.img_size，而rect方法则是将图像的长或者宽缩放到self.img_size，所以ratios一般都是1
             shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
 
             # load labels
             labels = []
             x = self.labels[index]
             if x.size > 0:
-                # Normalized xywh to pixel xyxy format
+                # Normalized xywh to pixel xyxy format，而且是实际值
                 labels = x.copy()  # label: class, x, y, w, h
-                labels[:, 1] = ratio[0] * w * (x[:, 1] - x[:, 3] / 2) + pad[0]  # pad width
+                labels[:, 1] = ratio[0] * w * (x[:, 1] - x[:, 3] / 2) + pad[0]  # pad width,应该是最外面的边框
                 labels[:, 2] = ratio[1] * h * (x[:, 2] - x[:, 4] / 2) + pad[1]  # pad height
-                labels[:, 3] = ratio[0] * w * (x[:, 1] + x[:, 3] / 2) + pad[0]
+                labels[:, 3] = ratio[0] * w * (x[:, 1] + x[:, 3] / 2) + pad[0]  # ratio 为 1，1
                 labels[:, 4] = ratio[1] * h * (x[:, 2] + x[:, 4] / 2) + pad[1]
 
         if self.augment:
@@ -432,8 +453,8 @@ def load_mosaic(self, index):
             # 创建马赛克图像
             img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
             # 计算马赛克图像中的坐标信息(将图像填充到马赛克图像中)
-            x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
-            # 计算截取的图像区域信息(以xc,yc为第一张图像的右下角坐标填充到马赛克图像中，丢弃越界的区域)
+            x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image),img4的索引
+            # 计算截取的图像区域信息(以xc,yc为第一张图像的右下角坐标填充到马赛克图像中，丢弃越界的区域)，img的索引
             x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image)
         elif i == 1:  # top right
             # 计算马赛克图像中的坐标信息(将图像填充到马赛克图像中)
@@ -491,13 +512,13 @@ def random_affine(img, targets=(), degrees=10, translate=.1, scale=.1, shear=10,
     # https://medium.com/uruvideo/dataset-augmentation-with-random-homographies-a8f4b44830d4
     # targets = [cls, xyxy]
 
-    # 给定的输入图像的尺寸(416/512/640)，等于img4.shape / 2
+    # 给定的输入图像的尺寸(416/512/640)，如果是在mosaic里面调用的random_affine，那么输入图像的尺寸会比指定的self.img_size大两倍，为了还原尺寸，这里border=-img_size/2
     height = img.shape[0] + border * 2
     width = img.shape[1] + border * 2
 
     # Rotation and Scale
     R = np.eye(3)
-    a = random.uniform(-degrees, degrees)
+    a = random.uniform(-degrees, degrees) #uniform() 方法将随机生成下一个实数，它在 [x, y] 范围内
     # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
     s = random.uniform(1 - scale, 1 + scale)
     # s = 2 ** random.uniform(-scale, scale)
@@ -514,6 +535,8 @@ def random_affine(img, targets=(), degrees=10, translate=.1, scale=.1, shear=10,
     S[1, 0] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # y shear (deg)
 
     # Combined rotation matrix
+    # *和np.multiply只能做点乘运算，当运算符两边的数据维度无法满足点乘运算结果时，就会报错
+    # @和.dot只能做矩阵乘法运算
     M = S @ T @ R  # ORDER IS IMPORTANT HERE!!
     if (border != 0) or (M != np.eye(3)).any():  # image changed
         img = cv2.warpAffine(img, M[:2], dsize=(width, height), flags=cv2.INTER_LINEAR, borderValue=(114, 114, 114))
@@ -523,14 +546,14 @@ def random_affine(img, targets=(), degrees=10, translate=.1, scale=.1, shear=10,
     if n:
         # warp points
         xy = np.ones((n * 4, 3))
-        xy[:, :2] = targets[:, [1, 2, 3, 4, 1, 4, 3, 2]].reshape(n * 4, 2)  # x1y1, x2y2, x1y2, x2y1
+        xy[:, :2] = targets[:, [1, 2, 3, 4, 1, 4, 3, 2]].reshape(n * 4, 2)  # x1y1, x2y2, x1y2, x2y1 ,左上角，右下角，左下角，右上角
         # [4*n, 3] -> [n, 8]
-        xy = (xy @ M.T)[:, :2].reshape(n, 8)
-
+        xy = (xy @ M.T)[:, :2].reshape(n, 8) #确实要M的转置才行，因为原本的顺序是M@xy(3x3@3x1 = 3x1),现在是xy.T的形式，相应的M.T才行
+        # 等价于(M.T @ xy.T).T
         # create new boxes
         x = xy[:, [0, 2, 4, 6]]  # [n, 4]
         y = xy[:, [1, 3, 5, 7]]  # [n, 4]
-        xy = np.concatenate((x.min(1), y.min(1), x.max(1), y.max(1))).reshape(4, n).T  # [n, 4]
+        xy = np.concatenate((x.min(1), y.min(1), x.max(1), y.max(1))).reshape(4, n).T  # [n, 4]，因为最终的box是没有倾斜的，这样就会形成一个外接的矩形包住原来的倾斜box
 
         # # apply angle-based reduction of bounding boxes
         # radians = a * math.pi / 180
@@ -557,7 +580,7 @@ def random_affine(img, targets=(), degrees=10, translate=.1, scale=.1, shear=10,
         # 选取长宽大于4个像素，且调整前后面积比例大于0.2，且比例小于10的box
         i = (w > 4) & (h > 4) & (area / (area0 * s + 1e-16) > 0.2) & (ar < 10)
 
-        targets = targets[i]
+        targets = targets[i] #i 在这里是一个模板，过滤掉经过处理后不符合的target_box
         targets[:, 1:5] = xy[i]
 
     return img, targets
@@ -598,13 +621,13 @@ def letterbox(img: np.ndarray,
     :param scale_up:
     :return:
     """
-
+    # new_shape 指定的图片大小 shape 原图的尺寸 new_unpad 经过缩放以后，其中一条边达到指定的尺寸，但是另外一条边小于指定尺寸，存在一个pad需要补
     shape = img.shape[:2]  # [h, w]
     if isinstance(new_shape, int):
         new_shape = (new_shape, new_shape)
 
     # scale ratio (new / old)
-    r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
+    r = min(new_shape[0] / shape[0], new_shape[1] / shape[1]) # 总会留下padding，要比指定的new_shape小一点
     if not scale_up:  # only scale down, do not scale up (for better test mAP) 对于大于指定输入大小的图片进行缩放,小于的不变
         r = min(r, 1.0)
 
@@ -614,8 +637,8 @@ def letterbox(img: np.ndarray,
     dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
     if auto:  # minimun rectangle 保证原图比例不变，将图像最大边缩放到指定大小
         # 这里的取余操作可以保证padding后的图片是32的整数倍
-        dw, dh = np.mod(dw, 32), np.mod(dh, 32)  # wh padding
-    elif scale_fill:  # stretch 简单粗暴的将图片缩放到指定尺寸
+        dw, dh = np.mod(dw, 32), np.mod(dh, 32)  # wh padding , 32a - x = 32b + y --> x + y = 32(a-b)
+    elif scale_fill:  # stretch 简单粗暴的将图片缩放到指定尺寸，原图会失去原来的比例,没有使用padding
         dw, dh = 0, 0
         new_unpad = new_shape
         ratio = new_shape[0] / shape[1], new_shape[1] / shape[0]  # wh ratios
@@ -625,7 +648,7 @@ def letterbox(img: np.ndarray,
 
     # shape:[h, w]  new_unpad:[w, h]
     if shape[::-1] != new_unpad:
-        img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
+        img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR) # 缩放到new_unpad
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))  # 计算上下两侧的padding
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))  # 计算左右两侧的padding
 
@@ -638,7 +661,3 @@ def create_folder(path="./new_folder"):
     if os.path.exists(path):
         shutil.rmtree(path)  # dalete output folder
     os.makedirs(path)  # make new output folder
-
-
-
-

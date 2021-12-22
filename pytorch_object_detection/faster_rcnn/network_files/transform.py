@@ -1,4 +1,5 @@
 import math
+import platform
 from typing import List, Tuple, Dict, Optional
 
 import torch
@@ -6,6 +7,9 @@ from torch import nn, Tensor
 import torchvision
 
 from .image_list import ImageList
+import numpy as np
+
+from PIL import Image,ImageFont,ImageDraw
 
 
 @torch.jit.unused
@@ -117,7 +121,16 @@ class GeneralizedRCNNTransform(nn.Module):
         # 根据图像的缩放比例来缩放bbox
         bbox = resize_boxes(bbox, [h, w], image.shape[-2:])
         target["boxes"] = bbox
-
+        pil_img = (image.cpu().numpy()*255 ).astype(np.uint8)
+        pil_img = np.ascontiguousarray(np.transpose(pil_img,(1,2,0)))
+        pil_img = Image.fromarray(pil_img)
+        draw = ImageDraw.Draw(pil_img)
+        if platform.system() == 'Windows':
+            font = ImageFont.truetype(r'C:\WINDOWS\Fonts\MSGOTHIC.ttc', 40)
+        for box,label in zip(target['boxes'].cpu().numpy(),target['labels'].cpu().numpy()):
+            # draw.text((box[0],box[1]-60),self.class_dict_inverse[str(label)],fill='red',font=font)
+            draw.rectangle((box[0],box[1],box[2],box[3]),outline='red',width=10)
+        pil_img.show()
         return image, target
 
     # _onnx_batch_images() is an implementation of
@@ -183,7 +196,7 @@ class GeneralizedRCNNTransform(nn.Module):
         # [batch, channel, height, width]
         batch_shape = [len(images)] + max_size
 
-        # 创建shape为batch_shape且值全部为0的tensor
+        # 创建shape为batch_shape且值全部为0的tensor，dtype和device属性和原tensor相同
         batched_imgs = images[0].new_full(batch_shape, 0)
         for img, pad_img in zip(images, batched_imgs):
             # 将输入images中的每张图片复制到新的batched_imgs的每张图片中，对齐左上角，保证bboxes的坐标不变

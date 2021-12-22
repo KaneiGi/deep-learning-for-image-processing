@@ -53,6 +53,7 @@ def create_modules(modules_defs: list, img_size):
 
         elif mdef["type"] == "BatchNorm2d":
             pass
+        # 由于batch_normalize不改变上一层卷积的深度，所以filters可以用上一次循环的数据
 
         elif mdef["type"] == "maxpool":
             k = mdef["size"]  # kernel size
@@ -67,23 +68,31 @@ def create_modules(modules_defs: list, img_size):
                 modules = nn.Upsample(scale_factor=mdef["stride"])
 
         elif mdef["type"] == "route":  # [-2],  [-1,-3,-5,-6], [-1, 61]
+            # 这里负值是相对坐标，但是正值应该是绝对坐标，和切片的思想相似
             layers = mdef["layers"]
             filters = sum([output_filters[l + 1 if l > 0 else l] for l in layers])
+            # output_filters的引索为0的地方，是之前设置的3，不能计算到拼接的深度里面
+            # output_filters的意思应该是输出的深度，或着说进行卷积的卷积核个数
+            # filters在每次循环中，都会获取当前模块的输出深度，然后添加到output_filters里面
             routs.extend([i + l if l < 0 else l for l in layers])
+            #添加的都是绝对的引索值
             modules = FeatureConcat(layers=layers)
 
         elif mdef["type"] == "shortcut":
             layers = mdef["from"]
+            # 这里一般是-3
             filters = output_filters[-1]
+            # 残差结构的输出的深度和输入的深度保持不变，所以这里可以用-1或着layers
             # routs.extend([i + l if l < 0 else l for l in layers])
             routs.append(i + layers[0])
             modules = WeightedFeatureFusion(layers=layers, weight="weights_type" in mdef)
+            # weights接受的是一个布尔值
 
         elif mdef["type"] == "yolo":
             yolo_index += 1  # 记录是第几个yolo_layer [0, 1, 2]
             stride = [32, 16, 8]  # 预测特征层对应原图的缩放比例
 
-            modules = YOLOLayer(anchors=mdef["anchors"][mdef["mask"]],  # anchor list
+            modules = YOLOLayer(anchors=mdef["anchors"][mdef["mask"]],  # anchor list,size = (9,2),mask也是一个列表，这样就是在0维度进行引索
                                 nc=mdef["classes"],  # number of classes
                                 img_size=img_size,
                                 stride=stride[yolo_index])
@@ -91,6 +100,7 @@ def create_modules(modules_defs: list, img_size):
             # Initialize preceding Conv2d() bias (https://arxiv.org/pdf/1708.02002.pdf section 3.3)
             try:
                 j = -1
+                # 表示前一层的module，即yolo预测层前面的不带bn和激活函数的卷积层，功能类似于全连接层
                 bias_ = module_list[j][0].bias  # shape(255,) 索引0对应Sequential中的Conv2d
                 bias = bias_.view(modules.na, -1)  # shape(3, 85)
                 bias[:, 4] += -4.5  # obj
@@ -115,25 +125,28 @@ class YOLOLayer(nn.Module):
     """
     对YOLO的输出进行处理
     """
+    # init函数主要作用是处理anchor，把anchor在原图上面的尺寸缩放到特征图上面的尺寸
     def __init__(self, anchors, nc, img_size, stride):
         super(YOLOLayer, self).__init__()
         self.anchors = torch.Tensor(anchors)
+        # Tensor()只能指定数据类型为torch.float,是默认张量类型torch.FloatTensor()的别名
         self.stride = stride  # layer stride 特征图上一步对应原图上的步距 [32, 16, 8]
-        self.na = len(anchors)  # number of anchors (3)
+        self.na = len(anchors)  # number of anchors (3),特征图上面每一个像素网格点上面的anchor数量
         self.nc = nc  # number of classes (80)
         self.no = nc + 5  # number of outputs (85: x, y, w, h, obj, cls1, ...)
-        self.nx, self.ny, self.ng = 0, 0, (0, 0)  # initialize number of x, y gridpoints
+        self.nx, self.ny, self.ng = 0, 0, (0, 0)  # initialize number of x, y gridpoints,关于网格，也就是特征图的尺寸
         # 将anchors大小缩放到grid尺度
         self.anchor_vec = self.anchors / self.stride
         # batch_size, na, grid_h, grid_w, wh,
         # 值为1的维度对应的值不是固定值，后续操作可根据broadcast广播机制自动扩充
         self.anchor_wh = self.anchor_vec.view(1, self.na, 1, 1, 2)
         self.grid = None
+        # 用tensor格式表示网格各个点的坐标，batch_size, na, grid_h, grid_w, wh
 
         if ONNX_EXPORT:
             self.training = False
             self.create_grids((img_size[1] // stride, img_size[0] // stride))  # number x, y grid points
-
+    # create_grids的作用是构造特征图上面各个像素点网格的坐标，方便和init函数的anchor坐标相加计算
     def create_grids(self, ng=(13, 13), device="cpu"):
         """
         更新grids信息并生成新的grids参数
@@ -143,7 +156,7 @@ class YOLOLayer(nn.Module):
         """
         self.nx, self.ny = ng
         self.ng = torch.tensor(ng, dtype=torch.float)
-
+        # torch.tensor会从data中的数据部分做拷贝（而不是直接引用），根据原始数据类型生成相应的torch.LongTensor、torch.FloatTensor和torch.DoubleTensor。tensor是一个函数，而Tensor是一个类
         # build xy offsets 构建每个cell处的anchor的xy偏移量(在feature map上的)
         if not self.training:  # 训练模式不需要回归到最终预测boxes
             yv, xv = torch.meshgrid([torch.arange(self.ny, device=device),
@@ -156,6 +169,7 @@ class YOLOLayer(nn.Module):
             self.anchor_wh = self.anchor_wh.to(device)
 
     def forward(self, p):
+        # p应该是上一个卷积层的输出，深度代表预测参数(anchor*85)，wh等于卷积层的宽高
         if ONNX_EXPORT:
             bs = 1  # batch size
         else:
@@ -183,7 +197,7 @@ class YOLOLayer(nn.Module):
             # p_cls = torch.sigmoid(p[:, 4:5]) if self.nc == 1 else \
             #     torch.sigmoid(p[:, 5:self.no]) * torch.sigmoid(p[:, 4:5])  # conf
             p[:, :2] = (torch.sigmoid(p[:, 0:2]) + grid) * ng  # x, y
-            p[:, 2:4] = torch.exp(p[:, 2:4]) * anchor_wh  # width, height
+            p[:, 2:4] = torch.exp(p[:, 2:4]) * anchor_wh  # width, height,size = 1, self.na, 1, 1, 2
             p[:, 4:] = torch.sigmoid(p[:, 4:])
             p[:, 5:] = p[:, 5:self.no] * p[:, 4:5]
             return p
@@ -230,8 +244,9 @@ class Darknet(nn.Module):
             name = module.__class__.__name__
             if name in ["WeightedFeatureFusion", "FeatureConcat"]:  # sum, concat
                 if verbose:
-                    l = [i - 1] + module.layers  # layers
-                    sh = [list(x.shape)] + [list(out[i].shape) for i in module.layers]  # shapes
+                    l = [i - 1] + module.layers  # layers,由于特征融合是将上一层和指定的层进行融合，所以是i-1,这里+ module.layers 是指向列表里面添加元素
+                    # layers是这两个module独有的属性，表示需要拼接或着融合的层,是一个列表
+                    sh = [list(x.shape)] + [list(out[i].shape) for i in module.layers]  # shapes，这里的x就是指当前层的特征图，一个列表里面包含两个列表元素
                     str = ' >> ' + ' + '.join(['layer %g %s' % x for x in zip(l, sh)])
                 x = module(x, out)  # WeightedFeatureFusion(), FeatureConcat()
             elif name == "YOLOLayer":

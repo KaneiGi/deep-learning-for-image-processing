@@ -77,7 +77,7 @@ def main(parser_data):
     train_data_loader = torch.utils.data.DataLoader(train_dataset,
                                                     batch_size=batch_size,
                                                     shuffle=True,
-                                                    num_workers=nw,
+                                                    num_workers=0,
                                                     collate_fn=train_dataset.collate_fn,
                                                     drop_last=drop_last)
 
@@ -85,7 +85,7 @@ def main(parser_data):
     val_data_loader = torch.utils.data.DataLoader(val_dataset,
                                                   batch_size=batch_size,
                                                   shuffle=False,
-                                                  num_workers=nw,
+                                                  num_workers=0,
                                                   collate_fn=train_dataset.collate_fn)
 
     model = create_model(num_classes=args.num_classes+1, device=device)
@@ -171,7 +171,7 @@ if __name__ == '__main__':
     # 检测的目标类别个数，不包括背景
     parser.add_argument('--num_classes', default=20, type=int, help='num_classes')
     # 训练数据集的根目录(VOCdevkit)
-    parser.add_argument('--data-path', default='./', help='dataset')
+    parser.add_argument('--data-path', default='C:/Users/wei43/Downloads', help='dataset')
     # 文件保存地址
     parser.add_argument('--output-dir', default='./save_weights', help='path where to save')
     # 若需要接着上次训练，则指定上次训练保存权重文件地址

@@ -34,7 +34,7 @@ def main():
     model = create_model(num_classes=num_classes)
 
     # load train weights
-    train_weights = "./save_weights/ssd300-14.pth"
+    train_weights = "./save_weights/ssd300-0.pth"
     train_weights_dict = torch.load(train_weights, map_location=device)['model']
 
     model.load_state_dict(train_weights_dict)

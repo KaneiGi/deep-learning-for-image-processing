@@ -76,10 +76,10 @@ def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
         gain = ratio_pad[0][0]
         pad = ratio_pad[1]
 
-    coords[:, [0, 2]] -= pad[0]  # x padding
+    coords[:, [0, 2]] -= pad[0]  # x padding，这里是按照中心重合的，原图缩放的图片的坐标原点和预测特征图上面的坐标原点差了pad/2,所以xyxy中的两个x需要减去pad/2
     coords[:, [1, 3]] -= pad[1]  # y padding
-    coords[:, :4] /= gain
-    clip_coords(coords, img0_shape)
+    coords[:, :4] /= gain #然后再缩放回原图
+    clip_coords(coords, img0_shape) #防止越界
     return coords
 
 
@@ -125,7 +125,7 @@ def bbox_iou(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False):
             # convex diagonal squared
             c2 = cw ** 2 + ch ** 2 + 1e-16
             # centerpoint distance squared
-            rho2 = ((b2_x1 + b2_x2) - (b1_x1 + b1_x2)) ** 2 / 4 + ((b2_y1 + b2_y2) - (b1_y1 + b1_y2)) ** 2 / 4
+            rho2 = (((b2_x1 + b2_x2) - (b1_x1 + b1_x2)) ** 2 / 4) + (((b2_y1 + b2_y2) - (b1_y1 + b1_y2)) ** 2 / 4) #box1 和box2的中心点x，y坐标的差的平方
             if DIoU:
                 return iou - rho2 / c2  # DIoU
             elif CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
@@ -234,9 +234,10 @@ def compute_loss(p, targets, model):  # predictions, targets, model
 
         nb = b.shape[0]  # number of targets
         if nb:
-            # 对应匹配到正样本的预测信息
+            # 对应匹配到正样本的预测信息,如果用列表进行索引的话，要嘛列表的长度都相同，每次抽出列表里面相同的位置里面的元素，形成唯一的索引，
+            #如果列表的元素个数是1，那么按照广播的原则匹配其他比较长的列表。如果该位置没有索引列表，那么就认为索引该维度的所有值
             ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets
-
+            #先在特征图上面找到和target面积相似的anchor，（这一步就可以确定三种类型的anchor中的哪一种）然后取target在特征图上面的中心点坐标，取整，就是和它最相邻的anchor中心坐标
             # GIoU
             pxy = ps[:, :2].sigmoid()
             pwh = ps[:, 2:4].exp().clamp(max=1E3) * anchors[i]
@@ -272,11 +273,11 @@ def compute_loss(p, targets, model):  # predictions, targets, model
 
 def build_targets(p, targets, model):
     # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
-    nt = targets.shape[0]
+    nt = targets.shape[0] #  target shape : class_index, xcenter, ycenter, w, h,还是带比例的
     tcls, tbox, indices, anch = [], [], [], []
     gain = torch.ones(6, device=targets.device)  # normalized to gridspace gain
 
-    multi_gpu = type(model) in (nn.parallel.DataParallel, nn.parallel.DistributedDataParallel)
+    multi_gpu = type(model) in (nn.parallel.DataParallel, nn.parallel.DistributedDataParallel)#表示model的类型是否在后面的列表里面
     for i, j in enumerate(model.yolo_layers):  # [89, 101, 113]
         # 获取该yolo predictor对应的anchors
         anchors = model.module.module_list[j].anchor_vec if multi_gpu else model.module_list[j].anchor_vec
@@ -286,26 +287,26 @@ def build_targets(p, targets, model):
         at = torch.arange(na).view(na, 1).repeat(1, nt)  # anchor tensor, same as .repeat_interleave(nt)
 
         # Match targets to anchors
-        a, t, offsets = [], targets * gain, 0
+        a, t, offsets = [], targets * gain, 0# gain是特征图的尺寸，target也是用比例表示的，乘上特征图的尺寸就表示在特征图上面的ground truth，t = tensor(num_targets,6)
         if nt:  # 如果存在target的话
             # iou_t = 0.20
             # j: [3, nt]
-            j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n) = wh_iou(anchors(3,2), gwh(n,2))
-            # t.repeat(na, 1, 1): [nt, 6] -> [3, nt, 6]
+            j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,num_targets) = wh_iou(anchors(3,2), gwh(n,2)),作用是为targets匹配合适的anchor（大小相近）
+            # t.repeat(na, 1, 1): [nt, 6] -> [3, nt, 6]，repeat(第几维重复几遍的意思)
             # 获取iou大于阈值的anchor与target对应信息
-            a, t = at[j], t.repeat(na, 1, 1)[j]  # filter
+            a, t = at[j], t.repeat(na, 1, 1)[j]  # filter，at意思是anchor作为纵轴，targets作为横轴，这一步t和a表达的意思差不多，但是多了具体的targets信息，然后把a的前两维拼接成一维
 
         # Define
         # long等于to(torch.int64), 数值向下取整
-        b, c = t[:, :2].long().T  # image, class
+        b, c = t[:, :2].long().T  # image, class，一维张量的转置等于其本身
         gxy = t[:, 2:4]  # grid xy
         gwh = t[:, 4:6]  # grid wh
         gij = (gxy - offsets).long()  # 匹配targets所在的grid cell左上角坐标
         gi, gj = gij.T  # grid xy indices
 
         # Append
-        indices.append((b, a, gj, gi))  # image, anchor, grid indices(x, y)
-        tbox.append(torch.cat((gxy - gij, gwh), 1))  # gt box相对anchor的x,y偏移量以及w,h
+        indices.append((b, a, gj, gi))  # image_index, anchor, grid indices(x, y)
+        tbox.append(torch.cat((gxy - gij, gwh), 1))  # gt box相对最近grid cell的x,y偏移量以及w,h
         anch.append(anchors[a])  # anchors
         tcls.append(c)  # class
         if c.shape[0]:  # if any targets
