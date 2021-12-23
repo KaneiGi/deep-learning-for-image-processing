@@ -263,7 +263,7 @@ class GeneralizedRCNNTransform(nn.Module):
 
         # 记录resize后的图像尺寸
         image_sizes = [img.shape[-2:] for img in images]
-        images = self.batch_images(images)  # 将images打包成一个batch
+        images = self.batch_images(images)  # 将images打包成一个batch,这时候会有padding操作，稍微改变图片的尺寸
         image_sizes_list = torch.jit.annotate(List[Tuple[int, int]], [])
 
         for image_size in image_sizes:

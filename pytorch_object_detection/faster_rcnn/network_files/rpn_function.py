@@ -196,7 +196,7 @@ class AnchorsGenerator(nn.Module):
         anchors_over_all_feature_maps = self.cached_grid_anchors(grid_sizes, strides)
         # 计算/读取所有anchors的坐标信息（这里的anchors信息是映射到原图上的所有anchors信息，不是anchors模板）
         # 得到的是一个list列表，对应每层预测特征图映射回原图的bndbox（即一层特征图上的一个像素对应一个anchor，再对应三个不同比例的bndbox）坐标信息
-        # bodbox的总数是特征图层数 x 特征图尺寸 x 一个anchor对应的bndbox个数（由尺寸和比例决定，self.sizes,self.aspect_ratios）
+        # bodbox的总数是每层的特征图尺寸 x 一个anchor对应的bndbox个数相加（由尺寸和比例决定，self.sizes,self.aspect_ratios）
 
 
         anchors = torch.jit.annotate(List[List[torch.Tensor]], [])
@@ -227,14 +227,20 @@ class RPNHead(nn.Module):
         num_anchors: number of anchors to be predicted
     """
 
-    def __init__(self, in_channels, num_anchors):
+    def __init__(self, in_channels, num_anchors_list):
         super(RPNHead, self).__init__()
         # 3x3 滑动窗口
-        self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1)
-        # 计算预测的目标分数（这里的目标只是指前景或者背景）
-        self.cls_logits = nn.Conv2d(in_channels, num_anchors, kernel_size=1, stride=1)
-        # 计算预测的目标bbox regression参数
-        self.bbox_pred = nn.Conv2d(in_channels, num_anchors * 4, kernel_size=1, stride=1)
+        self.cls_logits_list = nn.ModuleList()
+        self.bbox_pred_list = nn.ModuleList()
+        for num_anchors in num_anchors_list:
+            self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1)
+            # 计算预测的目标分数（这里的目标只是指前景或者背景）
+            self.cls_logits = nn.Conv2d(in_channels, num_anchors, kernel_size=1, stride=1)
+            # 计算预测的目标bbox regression参数
+            self.bbox_pred = nn.Conv2d(in_channels, num_anchors * 4, kernel_size=1, stride=1)
+
+            self.cls_logits_list.append(self.cls_logits)
+            self.bbox_pred_list.append(self.bbox_pred)
 
         for layer in self.children():
             if isinstance(layer, nn.Conv2d):
@@ -245,10 +251,10 @@ class RPNHead(nn.Module):
         # type: (List[Tensor]) -> Tuple[List[Tensor], List[Tensor]]
         logits = []
         bbox_reg = []
-        for i, feature in enumerate(x):
-            t = F.relu(self.conv(feature))
-            logits.append(self.cls_logits(t))  #从256个通道变为3通道，代表着三种不同的尺寸的bndbox的属性值：1正样本 0 负样本 -1 背景
-            bbox_reg.append(self.bbox_pred(t)) #从256变成12通道，分别对应三个bndbox的边框和实际边框ground trues的修正参数t[4]，但是实际上只有正样本的修正参数会被计算误差
+        for i, (cls_logits,bbox_pred) in enumerate(zip(self.cls_logits_list,self.bbox_pred_list)):
+            t = F.relu(self.conv(x[i]))
+            logits.append(cls_logits(t))  #从256个通道变为3通道，代表着三种不同的尺寸的bndbox的属性值：1正样本 0 负样本 -1 背景
+            bbox_reg.append(bbox_pred(t)) #从256变成12通道，分别对应三个bndbox的边框和实际边框ground trues的修正参数t[4]，但是实际上只有正样本的修正参数会被计算误差
         return logits, bbox_reg                #和以往不同，记录的特征信息在dim1
 
 
@@ -614,7 +620,7 @@ class RegionProposalNetwork(torch.nn.Module):
 
         # 计算每个预测特征层上的预测目标概率和bboxes regression参数
         # objectness和pred_bbox_deltas都是list
-        objectness, pred_bbox_deltas = self.head(features)  #[batch_size，三个bndbox的类别或着坐标，特征层尺寸(height,width)]
+        objectness, pred_bbox_deltas = self.head(features)  #[batch_size，三个bndbox的类别和坐标，特征层尺寸(height,width)]
 
         # 生成一个batch图像的所有anchors信息,list(tensor)元素个数等于batch_size
         anchors = self.anchor_generator(images, features)

@@ -13,7 +13,7 @@ from my_dataset import VOC2012DataSet
 from train_utils import train_eval_utils as utils
 
 
-def create_model(num_classes, device,parser_data):
+def create_model(num_classes, device, parser_data):
     # 注意，这里的backbone默认使用的是FrozenBatchNorm2d，即不会去更新bn参数
     # 目的是为了防止batch_size太小导致效果更差(如果显存很小，建议使用默认的FrozenBatchNorm2d)
     # 如果GPU显存很大可以设置比较大的batch_size就可以将norm_layer设置为普通的BatchNorm2d
@@ -35,6 +35,11 @@ def create_model(num_classes, device,parser_data):
     # 载入预训练模型权重
     # https://download.pytorch.org/models/fasterrcnn_resnet50_fpn_coco-258fb6c6.pth
     weights_dict = torch.load("./backbone/fasterrcnn_resnet50_fpn_coco.pth", map_location=device)
+    del_keys = ['rpn.head.cls_logits', 'rpn.head.bbox_pred']
+    for key in list(weights_dict.keys()):
+        for del_key in del_keys:
+            if del_key in key:
+                del weights_dict[key]
     missing_keys, unexpected_keys = model.load_state_dict(weights_dict, strict=False)
     if len(missing_keys) != 0 or len(unexpected_keys) != 0:
         print("missing_keys: ", missing_keys)
@@ -64,7 +69,7 @@ def main(parser_data):
     if platform.system() == "Darwin":
         VOC_root = r"/Users/gi/OneDrive/data_set"
     else:
-        VOC_root =r"C:\Users\wei43\OneDrive\data_set"
+        VOC_root = r"C:\Users\wei43\OneDrive\data_set"
         # check voc root
         # if os.path.exists(os.path.join(VOC_root, "VOCdevkit")) is False:
         #     raise FileNotFoundError("VOCdevkit dose not in path:'{}'.".format(VOC_root))
@@ -95,7 +100,7 @@ def main(parser_data):
                                                       collate_fn=train_data_set.collate_fn)
 
     # create model num_classes equal background + 20 classes
-    model = create_model(num_classes=parser_data.num_classes + 1, device=device,parser_data= parser_data)
+    model = create_model(num_classes=parser_data.num_classes + 1, device=device, parser_data=parser_data)
     # print(model)
 
     model.to(device)
@@ -147,7 +152,7 @@ def main(parser_data):
             best_map = coco_mAP
 
         # write into txt
-        with open(results_file, "a",encoding='uft-8') as f:
+        with open(results_file, "a", encoding='uft-8') as f:
             # 写入的数据包括coco指标还有loss和learning rate
             result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
             txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
@@ -201,23 +206,23 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', default=2, type=int, metavar='N',
                         help='batch size when training.')
     # learning rate
-    parser.add_argument('--learning_rate', default=0.005,type=float, metavar='LR',
+    parser.add_argument('--learning_rate', default=0.005, type=float, metavar='LR',
                         help='learning rate when training.')
 
-    parser.add_argument('--rpn_nms_thresh', default=0.7,type=float )
-    parser.add_argument('--rpn_fg_iou_thresh', default=0.7,type=float )
-    parser.add_argument('--rpn_bg_iou_thresh', default=0.3,type=float )
-    parser.add_argument('--rpn_score_thresh', default=0.0,type=float )
-    parser.add_argument('--box_score_thresh', default=0.05,type=float )
-    parser.add_argument('--box_nms_thresh', default=0.5,type=float )
-    parser.add_argument('--box_fg_iou_thresh', default=0.5,type=float )
-    parser.add_argument('--box_bg_iou_thresh', default=0.5,type=float )
-    parser.add_argument('--rpn_positive_fraction', default=0.25,type=float )
-    parser.add_argument('--box_positive_fraction', default=0.5,type=float )
-    parser.add_argument('--momentum', default=0.9,type=float )
-    parser.add_argument('--weight_decay', default=0.005,type=float )
-    parser.add_argument('--step_size', default=3,type=int)
-    parser.add_argument('--gamma', default=0.33,type=float )
+    parser.add_argument('--rpn_nms_thresh', default=0.7, type=float)
+    parser.add_argument('--rpn_fg_iou_thresh', default=0.7, type=float)
+    parser.add_argument('--rpn_bg_iou_thresh', default=0.3, type=float)
+    parser.add_argument('--rpn_score_thresh', default=0.0, type=float)
+    parser.add_argument('--box_score_thresh', default=0.05, type=float)
+    parser.add_argument('--box_nms_thresh', default=0.5, type=float)
+    parser.add_argument('--box_fg_iou_thresh', default=0.5, type=float)
+    parser.add_argument('--box_bg_iou_thresh', default=0.5, type=float)
+    parser.add_argument('--rpn_positive_fraction', default=0.25, type=float)
+    parser.add_argument('--box_positive_fraction', default=0.5, type=float)
+    parser.add_argument('--momentum', default=0.9, type=float)
+    parser.add_argument('--weight_decay', default=0.005, type=float)
+    parser.add_argument('--step_size', default=3, type=int)
+    parser.add_argument('--gamma', default=0.33, type=float)
     args = parser.parse_args()
     # tunner_args = nni.get_next_parameter()
     # args = merge_parameter(args,tunner_args)

@@ -79,7 +79,7 @@ class FasterRCNNBase(nn.Module):
             original_image_sizes.append((val[0], val[1]))
         # original_image_sizes = [img.shape[-2:] for img in images]
 
-        images, targets = self.transform(images, targets)  # 对图像进行预处理
+        images, targets = self.transform(images, targets)  # 对图像进行预处理,把长边缩放到指定的尺寸（目前是1333），短边等比缩放（749）
 
         # print(images.tensors.shape)
         features = self.backbone(images.tensors)  # 将图像输入backbone得到特征图
@@ -287,7 +287,7 @@ class FasterRCNN(FasterRCNNBase):
 
         # 若anchor生成器为空，则自动生成针对resnet50_fpn的anchor生成器
         if rpn_anchor_generator is None:
-            anchor_sizes = ((32,), (64,), (128,), (256,), (512,))
+            anchor_sizes = ((32,35), (64,), (128,), (256,), (512,))
             aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)
             rpn_anchor_generator = AnchorsGenerator(
                 anchor_sizes, aspect_ratios
@@ -296,7 +296,8 @@ class FasterRCNN(FasterRCNNBase):
         # 生成RPN通过滑动窗口预测网络部分
         if rpn_head is None:
             rpn_head = RPNHead(
-                out_channels, rpn_anchor_generator.num_anchors_per_location()[0]
+                # out_channels, rpn_anchor_generator.num_anchors_per_location()[0]
+                out_channels, rpn_anchor_generator.num_anchors_per_location()
             )
 
         # 默认rpn_pre_nms_top_n_train = 2000, rpn_pre_nms_top_n_test = 1000,
